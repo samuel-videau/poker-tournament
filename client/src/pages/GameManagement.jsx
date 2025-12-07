@@ -46,6 +46,19 @@ export default function GameManagement() {
   const syncIntervalRef = useRef(null);
   const hasAdvancedRef = useRef(false);
   
+  // Define handleNextLevel before it's used in useEffect
+  const handleNextLevel = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      await advanceLevel(id);
+      refresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [id, refresh]);
+  
   // Initialize timer when level changes or status changes
   useEffect(() => {
     if (!tournament?.stats) return;
@@ -134,18 +147,6 @@ export default function GameManagement() {
       setActionLoading(false);
     }
   };
-
-  const handleNextLevel = useCallback(async () => {
-    setActionLoading(true);
-    try {
-      await advanceLevel(id);
-      refresh();
-    } catch (err) {
-      setActionError(err.message);
-    } finally {
-      setActionLoading(false);
-    }
-  }, [id, refresh]);
 
   const handleAddEntry = async (e) => {
     e.preventDefault();
