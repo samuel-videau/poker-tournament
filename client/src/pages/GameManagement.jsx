@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTournament } from '../hooks/useTournament';
 import { 
@@ -42,42 +42,86 @@ export default function GameManagement() {
     }
   }, [actionError]);
 
-  // Initialize and sync local timer with server time when level changes or status changes
+  const countdownIntervalRef = useRef(null);
+  const syncIntervalRef = useRef(null);
+  const hasAdvancedRef = useRef(false);
+  
+  // Initialize timer when level changes or status changes
   useEffect(() => {
     if (!tournament?.stats) return;
-    // Update timer when level changes or when status changes (e.g., paused -> running)
+    // Reset timer when level changes or status changes
     setLocalTimeRemaining(tournament.stats.timeRemaining);
+    hasAdvancedRef.current = false; // Reset the flag when level changes
   }, [tournament?.current_level, tournament?.status]);
 
-  // Local countdown for smooth display when tournament is running
+  // Local countdown for smooth display - only when running
   useEffect(() => {
-    if (tournament?.status !== 'running') return;
+    // Clear any existing interval
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
     
-    const interval = setInterval(() => {
+    if (tournament?.status !== 'running' || !tournament?.stats) {
+      return;
+    }
+    
+    // Start countdown
+    countdownIntervalRef.current = setInterval(() => {
       setLocalTimeRemaining(prev => {
-        if (prev <= 1) {
-          return 0;
+        const newTime = prev > 0 ? prev - 1 : 0;
+        
+        // When timer reaches 0, automatically advance level (only once)
+        if (newTime === 0 && prev > 0 && !hasAdvancedRef.current) {
+          hasAdvancedRef.current = true;
+          handleNextLevel();
         }
-        return prev - 1;
+        
+        return newTime;
       });
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [tournament?.status]);
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, [tournament?.status, tournament?.current_level, handleNextLevel]);
 
-  // Sync with server time periodically to prevent drift
+  // Periodic sync with server to prevent drift (every 10 seconds)
   useEffect(() => {
-    if (tournament?.status === 'running' && tournament?.stats?.timeRemaining !== undefined) {
-      // Only sync if difference is more than 2 seconds
-      setLocalTimeRemaining(prev => {
-        const diff = Math.abs(prev - tournament.stats.timeRemaining);
-        if (diff > 2) {
-          return tournament.stats.timeRemaining;
-        }
-        return prev;
-      });
+    // Clear any existing sync interval
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+      syncIntervalRef.current = null;
     }
-  }, [tournament?.stats?.timeRemaining, tournament?.status]);
+    
+    if (tournament?.status !== 'running' || !tournament?.stats) {
+      return;
+    }
+    
+    // Sync every 10 seconds to prevent drift
+    syncIntervalRef.current = setInterval(() => {
+      if (tournament?.stats?.timeRemaining !== undefined) {
+        setLocalTimeRemaining(prev => {
+          const diff = Math.abs(prev - tournament.stats.timeRemaining);
+          // Only sync if difference is more than 3 seconds to avoid interfering with countdown
+          if (diff > 3) {
+            return tournament.stats.timeRemaining;
+          }
+          return prev;
+        });
+      }
+    }, 10000); // Sync every 10 seconds
+
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+    };
+  }, [tournament?.status, tournament?.stats?.timeRemaining]);
 
   const handleStatusChange = async (status) => {
     setActionLoading(true);
@@ -91,7 +135,7 @@ export default function GameManagement() {
     }
   };
 
-  const handleNextLevel = async () => {
+  const handleNextLevel = useCallback(async () => {
     setActionLoading(true);
     try {
       await advanceLevel(id);
@@ -101,7 +145,7 @@ export default function GameManagement() {
     } finally {
       setActionLoading(false);
     }
-  };
+  }, [id, refresh]);
 
   const handleAddEntry = async (e) => {
     e.preventDefault();

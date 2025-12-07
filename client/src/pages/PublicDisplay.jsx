@@ -11,49 +11,89 @@ export default function PublicDisplay() {
 
   // Calculate local time remaining
   const [localTimeRemaining, setLocalTimeRemaining] = useState(0);
+  const countdownIntervalRef = useRef(null);
+  const syncIntervalRef = useRef(null);
+  const playedLevelEndRef = useRef(false);
   
-  // Initialize and sync with server time when level changes, status changes, or tournament data updates
+  // Initialize timer when level changes or status changes
   useEffect(() => {
     if (!tournament?.stats) return;
-    // Update timer when level changes or when status changes (e.g., paused -> running)
+    // Reset timer when level changes or status changes
     setLocalTimeRemaining(tournament.stats.timeRemaining);
     setPlayedLevelEnd(false);
+    playedLevelEndRef.current = false;
   }, [tournament?.current_level, tournament?.status]);
 
-  // Local countdown for smooth display
+  // Local countdown for smooth display - only when running
   useEffect(() => {
-    if (tournament?.status !== 'running') return;
+    // Clear any existing interval
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
     
-    const interval = setInterval(() => {
+    if (tournament?.status !== 'running' || !tournament?.stats) {
+      return;
+    }
+    
+    // Start countdown
+    countdownIntervalRef.current = setInterval(() => {
       setLocalTimeRemaining(prev => {
-        if (prev <= 1) {
-          // Play sound and trigger level change
-          if (!playedLevelEnd) {
-            audioRef.current?.play().catch(() => {});
-            setPlayedLevelEnd(true);
-          }
-          return 0;
+        const newTime = prev > 0 ? prev - 1 : 0;
+        
+        // When timer reaches 0, play sound (only once per level)
+        if (newTime === 0 && prev > 0 && !playedLevelEndRef.current) {
+          audioRef.current?.play().catch(() => {});
+          setPlayedLevelEnd(true);
+          playedLevelEndRef.current = true;
+          // The server polling will pick up the level change when host advances it
         }
-        return prev - 1;
+        
+        return newTime;
       });
     }, 1000);
 
-    return () => clearInterval(interval);
-  }, [tournament?.status, playedLevelEnd]);
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, [tournament?.status, tournament?.current_level]);
 
-  // Sync with server time periodically to prevent drift
+  // Periodic sync with server to prevent drift (every 10 seconds)
   useEffect(() => {
-    if (tournament?.status === 'running' && tournament?.stats?.timeRemaining !== undefined) {
-      // Only sync if difference is more than 2 seconds
-      setLocalTimeRemaining(prev => {
-        const diff = Math.abs(prev - tournament.stats.timeRemaining);
-        if (diff > 2) {
-          return tournament.stats.timeRemaining;
-        }
-        return prev;
-      });
+    // Clear any existing sync interval
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+      syncIntervalRef.current = null;
     }
-  }, [tournament?.stats?.timeRemaining, tournament?.status]);
+    
+    if (tournament?.status !== 'running' || !tournament?.stats) {
+      return;
+    }
+    
+    // Sync every 10 seconds to prevent drift
+    syncIntervalRef.current = setInterval(() => {
+      if (tournament?.stats?.timeRemaining !== undefined) {
+        setLocalTimeRemaining(prev => {
+          const diff = Math.abs(prev - tournament.stats.timeRemaining);
+          // Only sync if difference is more than 3 seconds to avoid interfering with countdown
+          if (diff > 3) {
+            return tournament.stats.timeRemaining;
+          }
+          return prev;
+        });
+      }
+    }, 10000); // Sync every 10 seconds
+
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+    };
+  }, [tournament?.status, tournament?.stats?.timeRemaining]);
 
   if (loading) {
     return (

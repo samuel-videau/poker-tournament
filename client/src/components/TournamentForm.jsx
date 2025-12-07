@@ -312,11 +312,11 @@ export default function TournamentForm({ onCreated, onCancel }) {
             <ChipStack distribution={preview.chipDistribution} />
           </div>
 
-          {/* First few blind levels */}
+          {/* Blind levels */}
           <div>
             <div className="text-gray-500 text-xs uppercase tracking-wider mb-2">Blind Structure</div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              {preview.blindLevels.slice(0, 10).map((level, i) => (
+              {preview.blindLevels.map((level, i) => (
                 <div key={i} className="p-2 bg-casino-gray/50 rounded text-center">
                   <div className="text-xs text-gray-500">Level {i + 1}</div>
                   <div className="font-mono text-sm">

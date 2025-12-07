@@ -51,207 +51,89 @@ function getAvailableDenominations() {
     .sort((a, b) => b - a);
 }
 
-// Calculate GCD of denominations to find the smallest makeable unit
-function calculateGCD(a, b) {
-  return b === 0 ? a : calculateGCD(b, a % b);
-}
 
-// Get the smallest makeable unit (GCD of all denominations)
-function getSmallestMakeableUnit(denominations) {
-  if (denominations.length === 0) return 1;
-  if (denominations.length === 1) return denominations[0];
+// Floor a value to 2 significant digits (e.g., 1234 -> 1200, 123 -> 120, 31 -> 30)
+// Ensures the last digit is always 0 (multiples of 10)
+function floorTo2SignificantDigits(value) {
+  if (value === 0) return 0;
+  if (value < 1) return Math.floor(value * 100) / 100;
   
-  let gcd = denominations[0];
-  for (let i = 1; i < denominations.length; i++) {
-    gcd = calculateGCD(gcd, denominations[i]);
-  }
-  return gcd;
-}
-
-// Check if a value can be made with available chip denominations
-function canMakeValue(value, denominations) {
-  if (value === 0) return true;
-  if (value < 0) return false;
-  
-  const smallestUnit = getSmallestMakeableUnit(denominations);
-  // If value is not a multiple of the smallest unit, it can't be made
-  if (value % smallestUnit !== 0) return false;
-  
-  // Try to make the value using available denominations (greedy algorithm)
-  let remaining = value;
-  const sortedDenoms = [...denominations].sort((a, b) => b - a);
-  
-  for (const denom of sortedDenoms) {
-    const count = Math.floor(remaining / denom);
-    remaining -= count * denom;
-    if (remaining === 0) return true;
-  }
-  
-  return false;
-}
-
-// Round a value to the nearest makeable value with available chips
-function roundToMakeableValue(value, denominations) {
-  if (canMakeValue(value, denominations)) {
-    return value;
-  }
-  
-  const smallestUnit = getSmallestMakeableUnit(denominations);
-  
-  // Round to nearest multiple of smallest unit
-  const roundedDown = Math.floor(value / smallestUnit) * smallestUnit;
-  const roundedUp = Math.ceil(value / smallestUnit) * smallestUnit;
-  
-  // Verify both can actually be made (in case greedy algorithm fails)
-  const canMakeDown = canMakeValue(roundedDown, denominations);
-  const canMakeUp = canMakeValue(roundedUp, denominations);
-  
-  if (!canMakeDown && !canMakeUp) {
-    // If neither works, try further away
-    let testValue = roundedUp;
-    while (!canMakeValue(testValue, denominations) && testValue < value * 2) {
-      testValue += smallestUnit;
-    }
-    return testValue;
-  }
-  
-  if (!canMakeDown) return roundedUp;
-  if (!canMakeUp) return roundedDown;
-  
-  // Choose the closer one, or round up if equidistant (better for poker blinds)
-  return (roundedUp - value) <= (value - roundedDown) ? roundedUp : roundedDown;
-}
-
-// Round to "nice" poker blind values for better playability
-// Nice values: 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, etc.
-function roundToNiceBlind(value) {
-  if (value <= 0) return 10;
-  
-  // For very small values, round to nearest 10
-  if (value < 25) {
-    return Math.round(value / 10) * 10;
-  }
-  
-  // Determine the order of magnitude
   const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
   const normalized = value / magnitude;
+  const floored = Math.floor(normalized * 10) / 10;
+  let result = floored * magnitude;
   
-  // Round to nice numbers: 1, 2, 5, 10 (always round up for poker)
-  let niceNormalized;
-  if (normalized <= 1.5) {
-    niceNormalized = 1;
-  } else if (normalized <= 2.5) {
-    niceNormalized = 2;
-  } else if (normalized <= 5) {
-    niceNormalized = 5;
-  } else {
-    niceNormalized = 10;
+  // Ensure result is a multiple of 10 for values >= 10
+  // This ensures 31 -> 30, not 31
+  if (result >= 10) {
+    result = Math.floor(result / 10) * 10;
   }
   
-  // If the rounded value is less than the original, go to next nice number
-  const rounded = niceNormalized * magnitude;
-  if (rounded < value) {
-    // Find next nice number
-    if (niceNormalized === 1) {
-      niceNormalized = 2;
-    } else if (niceNormalized === 2) {
-      niceNormalized = 5;
-    } else if (niceNormalized === 5) {
-      niceNormalized = 10;
-    } else {
-      niceNormalized = 10;
-      magnitude *= 10;
-    }
-  }
-  
-  return niceNormalized * magnitude;
+  return Math.floor(result);
 }
 
 // Generate blind structure dynamically based on starting stack, speed, starting blind depth, blind increase rate, and BBA start level
 function generateBlindStructure(startingStack, speed, startingBlindDepth = 50, blindIncreaseRate = 1.25, bbaStartLevel = 6) {
-  const denominations = getAvailableDenominations();
-  const smallestDenom = Math.min(...denominations);
   const config = SPEED_CONFIG[speed] || SPEED_CONFIG.normal;
   
   const levels = [];
   
-  // Calculate initial big blind based on starting blind depth (e.g., 100BB means BB = startingStack / 100)
-  // startingBlindDepth is the number of big blinds in the starting stack
-  const initialBB = Math.floor(startingStack / startingBlindDepth);
-  let currentSB = Math.floor(initialBB / 2);
-  
-  // Ensure we don't go below smallest denomination
-  currentSB = Math.max(smallestDenom, currentSB);
-  currentSB = roundToNiceBlind(currentSB);
-  currentSB = roundToMakeableValue(currentSB, denominations);
+  // Calculate initial big blind based on starting blind depth
+  let currentBB = Math.floor(startingStack / startingBlindDepth);
   
   // Use provided blind increase rate, or fall back to speed-based defaults if not provided
-  let progression = parseFloat(blindIncreaseRate);
-  if (isNaN(progression) || progression <= 1) {
+  let increaseRate = parseFloat(blindIncreaseRate);
+  if (isNaN(increaseRate) || increaseRate <= 1) {
     // Fallback to speed-based progression if invalid
     const progressionFactors = {
       turbo: 1.4,
       normal: 1.25,
       slow: 1.2
     };
-    progression = progressionFactors[speed] || progressionFactors.normal;
+    increaseRate = progressionFactors[speed] || progressionFactors.normal;
   }
   
-  // Generate levels until we reach very high blinds (about 50% of starting stack)
-  const maxBlind = Math.floor(startingStack * 0.5);
+  // Generate levels until we reach very high blinds (2x starting stack)
+  // This ensures the tournament has enough levels for proper play, even in deep stack scenarios
+  // No level cap - continue until BB reaches 2x starting stack
+  const maxBlind = startingStack * 2;
   let level = 0;
-  let previousSB = 0;
+  let previousBB = 0;
   
-  while (currentSB < maxBlind && level < 50) {
-    // Round to nice blind value first
-    let niceSB = roundToNiceBlind(currentSB);
-    niceSB = roundToMakeableValue(niceSB, denominations);
+  while (currentBB < maxBlind) {
+    // Floor BB to 2 significant digits
+    currentBB = floorTo2SignificantDigits(currentBB);
     
-    // Ensure blind always increases
-    if (level > 0 && niceSB <= previousSB) {
-      niceSB = previousSB + smallestDenom;
-      niceSB = roundToNiceBlind(niceSB);
-      niceSB = roundToMakeableValue(niceSB, denominations);
-      // If still not increased, force it
-      if (niceSB <= previousSB) {
-        niceSB = previousSB + smallestDenom;
-        niceSB = roundToNiceBlind(niceSB);
-        niceSB = roundToMakeableValue(niceSB, denominations);
-      }
+    // Ensure blind always increases by at least one step (minimum increment of 10)
+    // If the floored value is the same as previous, increment to next multiple of 10
+    if (level > 0 && currentBB <= previousBB) {
+      // Find the next multiple of 10 that's greater than previousBB
+      const nextMultiple = Math.floor(previousBB / 10) * 10 + 10;
+      currentBB = nextMultiple;
     }
     
-    // Big blind is always exactly 2x small blind (no rounding needed)
-    const niceBB = niceSB * 2;
+    // Small blind is half of big blind, also floored to 2 significant digits
+    const sb = floorTo2SignificantDigits(currentBB / 2);
     
     // Add BBA (Big Blind Ante) starting from specified level
-    // Ante is always 1BB (big blind), and the big blind player also pays the ante
-    let roundedAnte = 0;
+    let ante = 0;
     const levelNumber = level + 1; // Level numbers are 1-indexed
     if (levelNumber >= bbaStartLevel) {
       // Ante equals the big blind
-      roundedAnte = niceBB;
+      ante = currentBB;
     }
     
     levels.push({
-      sb: niceSB,
-      bb: niceBB,
-      ante: roundedAnte
+      sb: sb,
+      bb: currentBB,
+      ante: ante
     });
     
-    // Progress to next level
-    let nextSB = Math.floor(niceSB * progression);
-    nextSB = roundToNiceBlind(nextSB);
-    nextSB = roundToMakeableValue(nextSB, denominations);
+    // Store current BB before calculating next
+    previousBB = currentBB;
     
-    // Ensure progression actually increases
-    if (nextSB <= niceSB) {
-      nextSB = niceSB + smallestDenom;
-      nextSB = roundToNiceBlind(nextSB);
-      nextSB = roundToMakeableValue(nextSB, denominations);
-    }
-    
-    previousSB = niceSB;
-    currentSB = nextSB;
+    // Calculate next BB: PreviousBB * IncreaseRate
+    currentBB = currentBB * increaseRate;
     
     level++;
   }
@@ -262,38 +144,68 @@ function generateBlindStructure(startingStack, speed, startingBlindDepth = 50, b
   };
 }
 
+// Calculate maximum achievable starting stack based on chip availability
+// This calculates what we can actually distribute given chip constraints
+function calculateMaxAchievableStack(maxPlayers, maxReentries = 0) {
+  const denominations = getAvailableDenominations().sort((a, b) => b - a);
+  const maxPossibleEntries = maxPlayers * (maxReentries + 1);
+  
+  // Calculate maximum chips available per entry for each denomination
+  let maxStack = 0;
+  for (const denom of denominations) {
+    const maxChipsPerEntry = Math.floor(CHIP_SET[denom] / maxPossibleEntries);
+    maxStack += maxChipsPerEntry * denom;
+  }
+  
+  // Round down to nearest 10 to account for distribution inefficiencies
+  // This ensures we can actually reach the target with the distribution algorithm
+  // while still being reasonably close to the theoretical maximum
+  return Math.floor(maxStack / 10) * 10;
+}
+
 // Calculate starting stack based on players and reentries
+// Now uses achievable stack calculation to ensure it's actually distributable
 function calculateStartingStack(maxPlayers, maxReentries = 0) {
-  // Total chip value available
+  // Calculate maximum achievable stack given chip constraints
+  const maxAchievableStack = calculateMaxAchievableStack(maxPlayers, maxReentries);
+  
+  // Also calculate theoretical maximum based on total chip value
   const totalChipValue = Object.entries(CHIP_SET).reduce((sum, [value, count]) => {
     return sum + (parseInt(value) * count);
   }, 0);
   
-  // Calculate maximum possible entries (initial entry + reentries)
   const maxPossibleEntries = maxPlayers * (maxReentries + 1);
+  const theoreticalPerEntry = Math.floor(totalChipValue / maxPossibleEntries);
   
-  // Divide total chips by max possible entries
-  const perEntry = Math.floor(totalChipValue / maxPossibleEntries);
+  // Use the minimum of achievable and theoretical
+  // This ensures we don't set a starting stack higher than what we can actually distribute
+  const perEntry = Math.min(maxAchievableStack, theoreticalPerEntry);
   
-  // Round down to nearest 100 for cleaner numbers
+  // Round down to nearest 100 for cleaner numbers, but ensure we don't go below achievable
   const roundedStack = Math.floor(perEntry / 100) * 100;
+  const finalStack = Math.min(roundedStack, maxAchievableStack);
   
   // Ensure minimum of smallest chip denomination
   const smallestDenom = Math.min(...Object.keys(CHIP_SET).map(Number));
-  return Math.max(smallestDenom, roundedStack);
+  return Math.max(smallestDenom, finalStack);
 }
 
 // Calculate chip distribution for starting stack, accounting for blind levels
-function calculateChipDistribution(startingStack, numPlayers, blindStructure = null) {
+function calculateChipDistribution(startingStack, numPlayers, blindStructure = null, maxReentries = 0) {
   const distribution = {};
   const denominations = getAvailableDenominations().sort((a, b) => b - a);
   const smallestDenom = Math.min(...denominations);
+  const sortedDenomsAsc = [...denominations].sort((a, b) => a - b);
   
-  // Calculate minimum chips needed for early blinds (first 5-10 levels)
+  // Calculate total possible entries (initial entries + reentries)
+  const maxPossibleEntries = numPlayers * (maxReentries + 1);
+  
+  // Calculate minimum chips needed for early blinds (first 10-15 levels)
   let minChipsForBlinds = {};
   if (blindStructure && blindStructure.levels && blindStructure.levels.length > 0) {
-    // Look at first few levels to determine minimum chip requirements
-    const earlyLevels = blindStructure.levels.slice(0, Math.min(8, blindStructure.levels.length));
+    // Look at more early levels to determine minimum chip requirements
+    // Consider first 12 levels to ensure enough chips for early game
+    const earlyLevels = blindStructure.levels.slice(0, Math.min(12, blindStructure.levels.length));
     
     // For each early level, calculate what chips are needed to pay the blind
     for (const level of earlyLevels) {
@@ -315,30 +227,239 @@ function calculateChipDistribution(startingStack, numPlayers, blindStructure = n
         minChipsForBlinds[denom] = Math.max(minChipsForBlinds[denom] || 0, count);
       }
     }
-  }
-  
-  // Distribute starting stack from highest to lowest denomination
-  let remaining = startingStack;
-  
-  for (const denom of denominations) {
-    if (denom > startingStack) continue;
     
-    const maxChipsAvailable = Math.floor(CHIP_SET[denom] / numPlayers);
-    const neededForStack = Math.floor(remaining / denom);
-    
-    // Use the maximum of: needed for stack, minimum for blinds
-    const minNeededForBlinds = minChipsForBlinds[denom] || 0;
-    const chips = Math.min(maxChipsAvailable, Math.max(neededForStack, minNeededForBlinds));
-    
-    if (chips > 0) {
-      distribution[denom] = chips;
-      remaining -= chips * denom;
+    // Add buffer: players need to pay blinds multiple times (at least 5-8 times)
+    // before they can make change with larger chips, so multiply small chip requirements
+    const bufferMultiplier = 6; // Enough for 6 blind payments
+    for (const denom of sortedDenomsAsc) {
+      if (minChipsForBlinds[denom] && denom <= 100) {
+        // Apply buffer multiplier to smaller denominations (10, 20, 50, 100)
+        minChipsForBlinds[denom] = Math.ceil(minChipsForBlinds[denom] * bufferMultiplier);
+      }
     }
   }
   
-  // Add remaining with smallest denomination
+  // First pass: Allocate minimum chips needed for blinds (constrained by available chips and remaining stack)
+  let remaining = startingStack;
+  
+  // Allocate minimum chips for blinds from smallest to largest
+  for (const denom of sortedDenomsAsc) {
+    if (denom > remaining) continue;
+    
+    const minNeeded = minChipsForBlinds[denom] || 0;
+    if (minNeeded > 0) {
+      // Calculate max chips available per entry based on total chip set and max possible entries
+      const maxChipsAvailable = Math.floor(CHIP_SET[denom] / maxPossibleEntries);
+      // Constrain by: minimum needed, chips available, and what we can afford with remaining stack
+      const chipsToAllocate = Math.min(
+        minNeeded,
+        maxChipsAvailable,
+        Math.floor(remaining / denom)
+      );
+      
+      if (chipsToAllocate > 0) {
+        distribution[denom] = chipsToAllocate;
+        remaining -= chipsToAllocate * denom;
+      }
+    }
+  }
+  
+  // Second pass: Fill remaining stack with larger denominations (highest to lowest)
+  // This pass tries to use up the remaining stack as completely as possible
+  for (const denom of denominations) {
+    if (denom > remaining) continue;
+    
+    // Calculate max chips available per entry based on total chip set and max possible entries
+    const maxChipsAvailable = Math.floor(CHIP_SET[denom] / maxPossibleEntries);
+    const alreadyAllocated = distribution[denom] || 0;
+    const chipsAvailable = maxChipsAvailable - alreadyAllocated;
+    
+    if (chipsAvailable > 0 && remaining >= denom) {
+      // Try to add as many chips as possible, up to what we need for remaining stack
+      const chipsNeeded = Math.floor(remaining / denom);
+      const chipsToAdd = Math.min(
+        chipsAvailable,
+        chipsNeeded
+      );
+      
+      if (chipsToAdd > 0) {
+        distribution[denom] = (distribution[denom] || 0) + chipsToAdd;
+        remaining -= chipsToAdd * denom;
+      }
+    }
+  }
+  
+  // Third pass: Handle any remaining amount, trying all denominations from smallest to largest
   if (remaining > 0) {
-    distribution[smallestDenom] = (distribution[smallestDenom] || 0) + Math.ceil(remaining / smallestDenom);
+    for (const denom of sortedDenomsAsc) {
+      if (remaining <= 0) break;
+      if (denom > remaining) continue;
+      
+      // Calculate max chips available per entry based on total chip set and max possible entries
+      const maxChipsAvailable = Math.floor(CHIP_SET[denom] / maxPossibleEntries);
+      const alreadyAllocated = distribution[denom] || 0;
+      const chipsAvailable = maxChipsAvailable - alreadyAllocated;
+      
+      if (chipsAvailable > 0) {
+        // Use Math.floor to avoid exceeding the starting stack
+        const chipsToAdd = Math.min(
+          chipsAvailable,
+          Math.floor(remaining / denom)
+        );
+        
+        if (chipsToAdd > 0) {
+          distribution[denom] = (distribution[denom] || 0) + chipsToAdd;
+          remaining -= chipsToAdd * denom;
+        }
+      }
+    }
+  }
+  
+  // Calculate current total
+  let totalDistributed = Object.entries(distribution).reduce((sum, [denom, count]) => {
+    return sum + (parseInt(denom) * count);
+  }, 0);
+  
+  // Fourth pass: Try to fill any remaining gap by adding more chips
+  // This pass is more aggressive and tries multiple rounds to fill the gap
+  let gap = startingStack - totalDistributed;
+  let maxIterations = 20; // Allow more iterations to fill the gap
+  let iterations = 0;
+  
+  while (gap > 0 && iterations < maxIterations) {
+    iterations++;
+    let gapBefore = gap;
+    let madeProgress = false;
+    
+    // Try to fill the gap by adding chips, starting from smallest denomination
+    for (const denom of sortedDenomsAsc) {
+      if (gap <= 0) break;
+      if (denom > gap + smallestDenom) continue; // Allow slightly larger denominations if close
+      
+      const maxChipsAvailable = Math.floor(CHIP_SET[denom] / maxPossibleEntries);
+      const alreadyAllocated = distribution[denom] || 0;
+      const chipsAvailable = maxChipsAvailable - alreadyAllocated;
+      
+      if (chipsAvailable > 0) {
+        // Calculate how many chips we can add to help fill the gap
+        // Use Math.ceil to try to get closer to the target
+        const chipsNeeded = Math.ceil(gap / denom);
+        let chipsToAdd = Math.min(
+          chipsAvailable,
+          chipsNeeded
+        );
+        
+        // If we're close to the target, try adding one more chip even if it slightly exceeds
+        // (we'll correct for excess in the validation step)
+        if (gap > 0 && gap < denom && chipsAvailable > 0) {
+          // Gap is smaller than this denomination, but adding one chip might help
+          // if we can then remove smaller chips to correct
+          chipsToAdd = Math.min(chipsAvailable, 1);
+        }
+        
+        if (chipsToAdd > 0) {
+          const valueToAdd = chipsToAdd * denom;
+          // Allow adding even if it slightly exceeds - we'll correct later
+          if (totalDistributed + valueToAdd <= startingStack + smallestDenom) {
+            distribution[denom] = (distribution[denom] || 0) + chipsToAdd;
+            totalDistributed += valueToAdd;
+            gap = startingStack - totalDistributed;
+            madeProgress = true;
+          }
+        }
+      }
+    }
+    
+    // If we didn't make progress, break to avoid infinite loop
+    if (!madeProgress && gap >= gapBefore) {
+      break;
+    }
+  }
+  
+  // Fifth pass: If there's still a gap and we have room, try using larger denominations
+  // that we might have skipped, working backwards
+  gap = startingStack - totalDistributed;
+  if (gap > 0) {
+    // Try larger denominations that might help, even if they exceed the gap slightly
+    // We'll correct for excess later
+    for (const denom of denominations) {
+      if (gap <= 0) break;
+      
+      const maxChipsAvailable = Math.floor(CHIP_SET[denom] / maxPossibleEntries);
+      const alreadyAllocated = distribution[denom] || 0;
+      const chipsAvailable = maxChipsAvailable - alreadyAllocated;
+      
+      // If the gap is close to this denomination, try adding one chip
+      if (chipsAvailable > 0 && gap >= denom * 0.5) {
+        const chipsToAdd = Math.min(chipsAvailable, 1);
+        if (chipsToAdd > 0) {
+          distribution[denom] = (distribution[denom] || 0) + chipsToAdd;
+          totalDistributed += chipsToAdd * denom;
+          gap = startingStack - totalDistributed;
+        }
+      }
+    }
+  }
+  
+  // Recalculate total after all passes
+  totalDistributed = Object.entries(distribution).reduce((sum, [denom, count]) => {
+    return sum + (parseInt(denom) * count);
+  }, 0);
+  
+  // Final optimization: If we're still short, try to optimize by swapping chips
+  // This tries to use available chip capacity more efficiently
+  gap = startingStack - totalDistributed;
+  if (gap > 0 && gap < smallestDenom * 10) { // Only if gap is reasonably small
+    // Try to add one more chip of a larger denomination if it helps
+    // and we have capacity, even if it slightly exceeds (we'll correct)
+    for (const denom of denominations) {
+      if (gap <= 0) break;
+      
+      const maxChipsAvailable = Math.floor(CHIP_SET[denom] / maxPossibleEntries);
+      const alreadyAllocated = distribution[denom] || 0;
+      const chipsAvailable = maxChipsAvailable - alreadyAllocated;
+      
+      // If adding one chip of this denomination gets us closer to target
+      if (chipsAvailable > 0 && denom <= gap + smallestDenom) {
+        distribution[denom] = (distribution[denom] || 0) + 1;
+        totalDistributed += denom;
+        gap = startingStack - totalDistributed;
+        break; // Only add one chip at a time in this pass
+      }
+    }
+  }
+  
+  // Validate and correct: ensure total doesn't exceed starting stack
+  totalDistributed = Object.entries(distribution).reduce((sum, [denom, count]) => {
+    return sum + (parseInt(denom) * count);
+  }, 0);
+  
+  // If we exceeded, remove chips starting from smallest denomination
+  if (totalDistributed > startingStack) {
+    let excess = totalDistributed - startingStack;
+    const sortedDenomsAscForAdjust = [...denominations].sort((a, b) => a - b);
+    
+    for (const denom of sortedDenomsAscForAdjust) {
+      if (excess <= 0) break;
+      if (!distribution[denom] || distribution[denom] === 0) continue;
+      
+      // Calculate how many chips we need to remove to cover the excess
+      const chipsToRemove = Math.min(
+        distribution[denom],
+        Math.ceil(excess / denom)
+      );
+      
+      if (chipsToRemove > 0) {
+        const valueRemoved = chipsToRemove * denom;
+        distribution[denom] -= chipsToRemove;
+        excess -= valueRemoved;
+        totalDistributed -= valueRemoved;
+        
+        if (distribution[denom] === 0) {
+          delete distribution[denom];
+        }
+      }
+    }
   }
   
   return distribution;
@@ -503,7 +624,8 @@ app.get('/api/tournaments/:id', async (req, res) => {
     const chipDistribution = calculateChipDistribution(
       tournament.starting_stack, 
       tournament.max_players,
-      structure
+      structure,
+      tournament.max_reentries || 0
     );
     
     res.json({
@@ -569,7 +691,7 @@ app.post('/api/tournaments/preview', (req, res) => {
   const increaseRate = blind_increase_rate || 1.25; // Default to 1.25x if not provided
   const bbaStart = bba_start_level || 6; // Default to level 6 if not provided
   const structure = generateBlindStructure(startingStack, speed, blindDepth, increaseRate, bbaStart);
-  const chipDistribution = calculateChipDistribution(startingStack, max_players, structure);
+  const chipDistribution = calculateChipDistribution(startingStack, max_players, structure, max_reentries || 0);
   
   // Calculate max possible entries for prize pool
   const maxPossibleEntries = max_players * ((max_reentries || 0) + 1);
@@ -579,7 +701,7 @@ app.post('/api/tournaments/preview', (req, res) => {
     levelMinutes: structure.levelMinutes,
     breakFrequency: structure.breakFrequency,
     breakMinutes: structure.breakMinutes,
-    blindLevels: structure.levels.slice(0, 15),
+    blindLevels: structure.levels, // Return all levels, no limit
     chipDistribution,
     estimatedDuration: `${Math.floor(structure.levels.length * structure.levelMinutes / 60)}+ hours`,
     prizePool: maxPossibleEntries * entry_price
@@ -799,3 +921,4 @@ initDB().then(() => {
     console.log(`Server running on port ${PORT}`);
   });
 });
+
