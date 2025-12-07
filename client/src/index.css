@@ -1,0 +1,245 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --gold-gradient: linear-gradient(135deg, #fde047 0%, #eab308 50%, #ca8a04 100%);
+  --felt-gradient: linear-gradient(135deg, #166534 0%, #14532d 50%, #0a3d1a 100%);
+  --dark-gradient: linear-gradient(180deg, #141414 0%, #0a0a0a 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Source Sans Pro', system-ui, sans-serif;
+  background: var(--dark-gradient);
+  background-attachment: fixed;
+  min-height: 100vh;
+  color: #f5f5f5;
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #141414;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3f3f3f;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #525252;
+}
+
+/* Casino felt texture background */
+.felt-bg {
+  background: 
+    radial-gradient(ellipse at center, rgba(22, 101, 52, 0.8) 0%, rgba(20, 83, 45, 0.9) 50%, rgba(10, 61, 26, 1) 100%),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.03) 2px,
+      rgba(0, 0, 0, 0.03) 4px
+    );
+  position: relative;
+}
+
+.felt-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.3;
+}
+
+/* Gold text effect */
+.gold-text {
+  background: var(--gold-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Card styling */
+.card {
+  @apply bg-casino-gray/80 backdrop-blur-sm border border-white/5 rounded-xl shadow-2xl;
+}
+
+.card-hover {
+  @apply transition-all duration-300 hover:border-gold-500/30 hover:shadow-gold-500/10;
+}
+
+/* Button base styles */
+.btn {
+  @apply px-4 py-2 rounded-lg font-semibold transition-all duration-200 
+         disabled:opacity-50 disabled:cursor-not-allowed
+         active:scale-95;
+}
+
+.btn-gold {
+  @apply bg-gradient-to-r from-gold-400 via-gold-500 to-gold-600 
+         text-casino-black hover:from-gold-300 hover:via-gold-400 hover:to-gold-500
+         shadow-lg shadow-gold-500/25;
+}
+
+.btn-outline {
+  @apply border border-gold-500/50 text-gold-400 
+         hover:bg-gold-500/10 hover:border-gold-400;
+}
+
+.btn-danger {
+  @apply bg-red-600 hover:bg-red-500 text-white;
+}
+
+.btn-success {
+  @apply bg-emerald-600 hover:bg-emerald-500 text-white;
+}
+
+/* Input styles */
+.input {
+  @apply w-full px-4 py-3 bg-casino-black border border-white/10 rounded-lg
+         text-white placeholder:text-gray-500
+         focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30
+         transition-all duration-200;
+}
+
+.select {
+  @apply w-full px-4 py-3 bg-casino-black border border-white/10 rounded-lg
+         text-white appearance-none cursor-pointer
+         focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30
+         transition-all duration-200;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23fde047' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+}
+
+/* Timer display */
+.timer-display {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+
+/* Chip styling */
+.chip {
+  @apply inline-flex items-center justify-center w-10 h-10 rounded-full 
+         font-mono font-bold text-xs border-2 shadow-md;
+}
+
+.chip-10 {
+  @apply bg-gray-100 text-gray-800 border-gray-300;
+}
+
+.chip-20 {
+  @apply bg-red-600 text-white border-red-400;
+}
+
+.chip-50 {
+  @apply bg-green-600 text-white border-green-400;
+}
+
+.chip-100 {
+  @apply bg-blue-800 text-white border-blue-500;
+}
+
+.chip-500 {
+  @apply bg-purple-800 text-white border-purple-400;
+}
+
+/* Status badges */
+.badge {
+  @apply px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider;
+}
+
+.badge-pending {
+  @apply bg-gray-600/50 text-gray-300;
+}
+
+.badge-running {
+  @apply bg-emerald-600/50 text-emerald-300 animate-pulse;
+}
+
+.badge-paused {
+  @apply bg-amber-600/50 text-amber-300;
+}
+
+.badge-ended {
+  @apply bg-red-600/50 text-red-300;
+}
+
+/* Glowing border effect */
+.glow-border {
+  position: relative;
+}
+
+.glow-border::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: var(--gold-gradient);
+  border-radius: inherit;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.glow-border:hover::before {
+  opacity: 0.5;
+}
+
+/* Animated background for public display */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animated-bg {
+  background: linear-gradient(-45deg, #0a3d1a, #166534, #14532d, #052e10);
+  background-size: 400% 400%;
+  animation: gradient-shift 15s ease infinite;
+}
+
+/* Prize pool display */
+.prize-glow {
+  text-shadow: 0 0 20px rgba(234, 179, 8, 0.5), 0 0 40px rgba(234, 179, 8, 0.3);
+}
+
+/* Level indicator */
+.level-indicator {
+  @apply relative overflow-hidden;
+}
+
+.level-indicator::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--gold-gradient);
+  animation: level-progress linear forwards;
+}
+
+/* Responsive adjustments for public display */
+@media (min-width: 1920px) {
+  .public-display {
+    font-size: 1.25rem;
+  }
+  
+  .public-display .timer-display {
+    font-size: 12rem;
+  }
+}

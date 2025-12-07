@@ -1,0 +1,494 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useTournament } from '../hooks/useTournament';
+import { 
+  updateTournamentStatus, 
+  advanceLevel, 
+  addEntry, 
+  recordKnockout,
+  formatCurrency, 
+  formatNumber, 
+  formatTime 
+} from '../utils/api';
+import BlindLevel from '../components/BlindLevel';
+
+const STATUS_COLORS = {
+  pending: 'badge-pending',
+  running: 'badge-running',
+  paused: 'badge-paused',
+  ended: 'badge-ended'
+};
+
+export default function GameManagement() {
+  const { id } = useParams();
+  const { tournament, loading, error, refresh } = useTournament(id);
+  
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [showKOModal, setShowKOModal] = useState(false);
+  const [koEliminator, setKoEliminator] = useState('');
+  const [koEliminated, setKoEliminated] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState(null);
+
+  // Clear action error after 5 seconds
+  useEffect(() => {
+    if (actionError) {
+      const timer = setTimeout(() => setActionError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [actionError]);
+
+  const handleStatusChange = async (status) => {
+    setActionLoading(true);
+    try {
+      await updateTournamentStatus(id, status);
+      refresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleNextLevel = async () => {
+    setActionLoading(true);
+    try {
+      await advanceLevel(id);
+      refresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAddEntry = async (e) => {
+    e.preventDefault();
+    if (!newPlayerName.trim()) return;
+    
+    setActionLoading(true);
+    try {
+      await addEntry(id, newPlayerName.trim());
+      setNewPlayerName('');
+      refresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRecordKO = async () => {
+    if (!koEliminator || !koEliminated) return;
+    
+    setActionLoading(true);
+    try {
+      const result = await recordKnockout(id, koEliminator, koEliminated);
+      setShowKOModal(false);
+      setKoEliminator('');
+      setKoEliminated('');
+      refresh();
+      
+      if (result.bountyAmount > 0) {
+        alert(`Bounty collected: ${formatCurrency(result.bountyAmount)}`);
+      }
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-casino-dark to-casino-black flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-gold-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (error || !tournament) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-casino-dark to-casino-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">❌</div>
+          <h2 className="text-2xl text-red-400">{error || 'Tournament not found'}</h2>
+          <Link to="/host" className="btn btn-outline mt-4">Back to Dashboard</Link>
+        </div>
+      </div>
+    );
+  }
+
+  const { stats, entries = [], knockouts = [] } = tournament;
+  const activeEntries = entries.filter(e => !e.is_eliminated);
+  const isKO = tournament.type === 'ko' || tournament.type === 'mystery_ko';
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-casino-dark to-casino-black">
+      {/* Header */}
+      <header className="border-b border-white/5 bg-casino-black/50 sticky top-0 z-40 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Link to="/host" className="text-gray-500 hover:text-gold-400 transition-colors">
+                ← Back
+              </Link>
+              <div>
+                <h1 className="font-display text-2xl font-bold text-white">
+                  {tournament.name}
+                </h1>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className={`badge ${STATUS_COLORS[tournament.status]}`}>
+                    {tournament.status}
+                  </span>
+                  <span className="text-gray-500 text-sm">Level {tournament.current_level}</span>
+                </div>
+              </div>
+            </div>
+            
+            <Link
+              to={`/display/${id}`}
+              target="_blank"
+              className="btn btn-outline"
+            >
+              Open Public Display ↗
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 py-6">
+        {/* Error Alert */}
+        {actionError && (
+          <div className="mb-6 p-4 bg-red-900/50 border border-red-500/50 rounded-lg text-red-200">
+            {actionError}
+          </div>
+        )}
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Main Controls Column */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Tournament Status Card */}
+            <div className="card p-6">
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Current Blinds */}
+                <div>
+                  <h3 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Current Blinds</h3>
+                  <BlindLevel level={stats?.currentBlind} size="large" />
+                  
+                  {stats?.nextBlind && (
+                    <div className="mt-4 pt-4 border-t border-white/5">
+                      <div className="text-xs uppercase tracking-wider text-gray-600 mb-1">Next Level</div>
+                      <BlindLevel level={stats.nextBlind} size="normal" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Timer & Stats */}
+                <div>
+                  <h3 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Level Timer</h3>
+                  <div className="timer-display text-5xl font-bold text-gold-400">
+                    {formatTime(stats?.timeRemaining || 0)}
+                  </div>
+                  <div className="text-gray-500 text-sm mt-1">
+                    {stats?.levelMinutes} min levels
+                  </div>
+                  
+                  {stats?.isBreak && (
+                    <div className="mt-4 p-3 bg-amber-900/30 border border-amber-500/30 rounded-lg text-amber-300">
+                      ⏸ Break Time ({stats.breakMinutes} min)
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Control Buttons */}
+              <div className="flex flex-wrap gap-3 mt-6 pt-6 border-t border-white/5">
+                {tournament.status === 'pending' && (
+                  <button
+                    onClick={() => handleStatusChange('running')}
+                    disabled={actionLoading || entries.length < 2}
+                    className="btn btn-success"
+                  >
+                    ▶ Start Tournament
+                  </button>
+                )}
+                
+                {tournament.status === 'running' && (
+                  <>
+                    <button
+                      onClick={() => handleStatusChange('paused')}
+                      disabled={actionLoading}
+                      className="btn btn-outline"
+                    >
+                      ⏸ Pause
+                    </button>
+                    <button
+                      onClick={handleNextLevel}
+                      disabled={actionLoading}
+                      className="btn btn-gold"
+                    >
+                      ⏭ Next Level
+                    </button>
+                  </>
+                )}
+                
+                {tournament.status === 'paused' && (
+                  <button
+                    onClick={() => handleStatusChange('running')}
+                    disabled={actionLoading}
+                    className="btn btn-success"
+                  >
+                    ▶ Resume
+                  </button>
+                )}
+                
+                {(tournament.status === 'running' || tournament.status === 'paused') && (
+                  <button
+                    onClick={() => handleStatusChange('ended')}
+                    disabled={actionLoading}
+                    className="btn btn-danger ml-auto"
+                  >
+                    ⏹ End Tournament
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="card p-4 text-center">
+                <div className="text-xs uppercase tracking-wider text-gray-500">Active / Total</div>
+                <div className="text-2xl font-mono mt-1">
+                  <span className="text-emerald-400">{stats?.activeEntries || 0}</span>
+                  <span className="text-gray-600"> / </span>
+                  <span className="text-white">{stats?.totalEntries || 0}</span>
+                </div>
+              </div>
+              <div className="card p-4 text-center">
+                <div className="text-xs uppercase tracking-wider text-gray-500">Prize Pool</div>
+                <div className="text-2xl font-mono text-gold-400 mt-1">
+                  {formatCurrency(stats?.totalPrizePool || 0)}
+                </div>
+              </div>
+              <div className="card p-4 text-center">
+                <div className="text-xs uppercase tracking-wider text-gray-500">Avg Stack</div>
+                <div className="text-2xl font-mono text-white mt-1">
+                  {formatNumber(stats?.averageStack || tournament.starting_stack)}
+                </div>
+              </div>
+              <div className="card p-4 text-center">
+                <div className="text-xs uppercase tracking-wider text-gray-500">Starting Stack</div>
+                <div className="text-2xl font-mono text-gray-400 mt-1">
+                  {formatNumber(tournament.starting_stack)}
+                </div>
+              </div>
+            </div>
+
+            {/* Players Table */}
+            <div className="card overflow-hidden">
+              <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                <h3 className="font-display text-lg text-white">Players ({entries.length})</h3>
+                
+                {/* Add Entry Form */}
+                {tournament.status !== 'ended' && (
+                  <form onSubmit={handleAddEntry} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newPlayerName}
+                      onChange={(e) => setNewPlayerName(e.target.value)}
+                      placeholder="Player name"
+                      className="input py-2 px-3 w-40"
+                    />
+                    <button 
+                      type="submit" 
+                      disabled={actionLoading || !newPlayerName.trim()}
+                      className="btn btn-gold py-2"
+                    >
+                      + Add Entry
+                    </button>
+                  </form>
+                )}
+              </div>
+              
+              <div className="divide-y divide-white/5 max-h-80 overflow-y-auto">
+                {entries.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    No entries yet. Add players to get started.
+                  </div>
+                ) : (
+                  entries.map((entry, idx) => (
+                    <div 
+                      key={entry.id} 
+                      className={`p-3 flex items-center justify-between ${entry.is_eliminated ? 'opacity-50' : ''}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-600 text-sm w-6">{idx + 1}</span>
+                        <span className={entry.is_eliminated ? 'line-through text-gray-500' : 'text-white'}>
+                          {entry.player_name}
+                        </span>
+                        {entry.entry_number > 1 && (
+                          <span className="text-xs px-2 py-0.5 bg-amber-600/30 text-amber-400 rounded">
+                            Re-entry #{entry.entry_number}
+                          </span>
+                        )}
+                        {entry.is_eliminated && (
+                          <span className="text-xs px-2 py-0.5 bg-red-600/30 text-red-400 rounded">
+                            Eliminated
+                          </span>
+                        )}
+                      </div>
+                      {isKO && entry.bounty_collected > 0 && (
+                        <span className="text-emerald-400 text-sm">
+                          +{formatCurrency(parseFloat(entry.bounty_collected))}
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Actions Card */}
+            {tournament.status !== 'ended' && tournament.status !== 'pending' && (
+              <div className="card p-4">
+                <h3 className="font-display text-lg text-white mb-4">Quick Actions</h3>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setShowKOModal(true)}
+                    disabled={activeEntries.length < 2}
+                    className="btn btn-outline w-full"
+                  >
+                    💀 Record Knockout
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Recent KOs */}
+            {knockouts.length > 0 && (
+              <div className="card p-4">
+                <h3 className="font-display text-lg text-white mb-4">Recent Knockouts</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {knockouts.slice(0, 10).map(ko => (
+                    <div key={ko.id} className="p-2 bg-casino-black/50 rounded text-sm">
+                      <span className="text-emerald-400">{ko.eliminator_name}</span>
+                      <span className="text-gray-500"> eliminated </span>
+                      <span className="text-red-400">{ko.eliminated_name}</span>
+                      {parseFloat(ko.bounty_amount) > 0 && (
+                        <span className="text-gold-400 ml-2">
+                          +{formatCurrency(parseFloat(ko.bounty_amount))}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tournament Info */}
+            <div className="card p-4">
+              <h3 className="font-display text-lg text-white mb-4">Tournament Info</h3>
+              <dl className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Type</dt>
+                  <dd className="text-white capitalize">{tournament.type.replace('_', ' ')}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Speed</dt>
+                  <dd className="text-white capitalize">{tournament.speed}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Buy-in</dt>
+                  <dd className="text-gold-400">{formatCurrency(parseFloat(tournament.entry_price))}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Max Players</dt>
+                  <dd className="text-white">{tournament.max_players}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Max Re-entries</dt>
+                  <dd className="text-white">{tournament.max_reentries}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* KO Modal */}
+      {showKOModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="card max-w-md w-full p-6">
+            <h2 className="font-display text-2xl gold-text mb-6">Record Knockout</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Winner (Eliminator)
+                </label>
+                <select
+                  value={koEliminator}
+                  onChange={(e) => setKoEliminator(e.target.value)}
+                  className="select"
+                >
+                  <option value="">Select player...</option>
+                  {activeEntries
+                    .filter(e => e.id.toString() !== koEliminated)
+                    .map(entry => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.player_name} {entry.entry_number > 1 ? `(#${entry.entry_number})` : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Eliminated Player
+                </label>
+                <select
+                  value={koEliminated}
+                  onChange={(e) => setKoEliminated(e.target.value)}
+                  className="select"
+                >
+                  <option value="">Select player...</option>
+                  {activeEntries
+                    .filter(e => e.id.toString() !== koEliminator)
+                    .map(entry => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.player_name} {entry.entry_number > 1 ? `(#${entry.entry_number})` : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-4 mt-6">
+              <button
+                onClick={() => {
+                  setShowKOModal(false);
+                  setKoEliminator('');
+                  setKoEliminated('');
+                }}
+                className="btn btn-outline flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRecordKO}
+                disabled={actionLoading || !koEliminator || !koEliminated}
+                className="btn btn-gold flex-1"
+              >
+                Confirm KO
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
