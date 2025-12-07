@@ -16,14 +16,14 @@ export default function PublicDisplay() {
   const syncIntervalRef = useRef(null);
   const playedLevelEndRef = useRef(false);
   
-  // Initialize timer when level changes or status changes
+  // Initialize timer when level changes, status changes, or break state changes
   useEffect(() => {
     if (!tournament?.stats) return;
-    // Reset timer when level changes or status changes
+    // Reset timer when level changes, status changes, or break state changes
     setLocalTimeRemaining(tournament.stats.timeRemaining);
     setPlayedLevelEnd(false);
     playedLevelEndRef.current = false;
-  }, [tournament?.current_level, tournament?.status]);
+  }, [tournament?.current_level, tournament?.status, tournament?.stats?.isBreak]);
 
   // Local countdown for smooth display - only when running
   useEffect(() => {
@@ -60,7 +60,7 @@ export default function PublicDisplay() {
         countdownIntervalRef.current = null;
       }
     };
-  }, [tournament?.status, tournament?.current_level]);
+  }, [tournament?.status, tournament?.current_level, tournament?.stats?.isBreak]);
 
   // Periodic sync with server to prevent drift (every 10 seconds)
   useEffect(() => {
@@ -94,7 +94,7 @@ export default function PublicDisplay() {
         syncIntervalRef.current = null;
       }
     };
-  }, [tournament?.status, tournament?.stats?.timeRemaining]);
+  }, [tournament?.status, tournament?.stats?.timeRemaining, tournament?.stats?.isBreak]);
 
   if (loading) {
     return (
