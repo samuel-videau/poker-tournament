@@ -58,6 +58,14 @@ export async function advanceLevel(id) {
   return res.json();
 }
 
+export async function skipBreak(id) {
+  const res = await fetch(`${API_BASE}/tournaments/${id}/skip-break`, {
+    method: 'PATCH'
+  });
+  if (!res.ok) throw new Error('Failed to skip break');
+  return res.json();
+}
+
 export async function addEntry(tournamentId, playerName) {
   const res = await fetch(`${API_BASE}/tournaments/${tournamentId}/entries`, {
     method: 'POST',

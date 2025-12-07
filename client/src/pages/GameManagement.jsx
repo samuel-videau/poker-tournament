@@ -3,7 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { useTournament } from '../hooks/useTournament';
 import { 
   updateTournamentStatus, 
-  advanceLevel, 
+  advanceLevel,
+  skipBreak, 
   addEntry, 
   recordKnockout,
   formatCurrency, 
@@ -12,6 +13,7 @@ import {
 } from '../utils/api';
 import BlindLevel from '../components/BlindLevel';
 import ChipStack from '../components/ChipStack';
+import Leaderboard from '../components/Leaderboard';
 
 const STATUS_COLORS = {
   pending: 'badge-pending',
@@ -57,13 +59,26 @@ export default function GameManagement() {
       setActionLoading(false);
     }
   }, [id, refresh]);
+
+  // Define handleSkipBreak for skipping breaks
+  const handleSkipBreak = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      await skipBreak(id);
+      refresh();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [id, refresh]);
   
-  // Initialize timer when level changes or status changes
+  // Initialize timer when level changes, status changes, or break state changes
   useEffect(() => {
     if (!tournament?.stats) return;
-    // Reset timer when level changes or status changes
+    // Reset timer when level changes, status changes, or break state changes
     setLocalTimeRemaining(tournament.stats.timeRemaining);
-  }, [tournament?.current_level, tournament?.status]);
+  }, [tournament?.current_level, tournament?.status, tournament?.stats?.isBreak]);
 
   // Local countdown for smooth display - only when running
   useEffect(() => {
@@ -93,7 +108,7 @@ export default function GameManagement() {
         countdownIntervalRef.current = null;
       }
     };
-  }, [tournament?.status, tournament?.current_level]);
+  }, [tournament?.status, tournament?.current_level, tournament?.stats?.isBreak]);
 
   // Periodic sync with server to prevent drift (every 10 seconds)
   useEffect(() => {
@@ -273,12 +288,14 @@ export default function GameManagement() {
                     {formatTime(tournament?.status === 'running' ? localTimeRemaining : (stats?.timeRemaining || 0))}
                   </div>
                   <div className="text-gray-500 text-sm mt-1">
-                    {stats?.levelMinutes} min levels
+                    {stats?.isBreak 
+                      ? `${stats?.breakMinutes} min break` 
+                      : `${stats?.levelMinutes} min levels`}
                   </div>
                   
                   {stats?.isBreak && (
                     <div className="mt-4 p-3 bg-amber-900/30 border border-amber-500/30 rounded-lg text-amber-300">
-                      ⏸ Break Time ({stats.breakMinutes} min)
+                      ⏸ Break Time - Level timer paused
                     </div>
                   )}
                 </div>
@@ -305,13 +322,23 @@ export default function GameManagement() {
                     >
                       ⏸ Pause
                     </button>
-                    <button
-                      onClick={handleNextLevel}
-                      disabled={actionLoading}
-                      className="btn btn-gold"
-                    >
-                      ⏭ Next Level
-                    </button>
+                    {stats?.isBreak ? (
+                      <button
+                        onClick={handleSkipBreak}
+                        disabled={actionLoading}
+                        className="btn btn-gold"
+                      >
+                        ⏭ Skip Break
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleNextLevel}
+                        disabled={actionLoading}
+                        className="btn btn-gold"
+                      >
+                        ⏭ Next Level
+                      </button>
+                    )}
                   </>
                 )}
                 
@@ -434,6 +461,11 @@ export default function GameManagement() {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Leaderboard */}
+            {tournament.leaderboard && (
+              <Leaderboard leaderboard={tournament.leaderboard} tournamentStatus={tournament.status} />
+            )}
+            
             {/* Actions Card */}
             {tournament.status !== 'ended' && tournament.status !== 'pending' && (
               <div className="card p-4">

@@ -487,6 +487,9 @@ async function initDB() {
         level_start_time TIMESTAMP,
         pause_time TIMESTAMP,
         elapsed_before_pause INTEGER DEFAULT 0,
+        break_start_time TIMESTAMP,
+        level_elapsed_before_break INTEGER DEFAULT 0,
+        break_completed_level INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       
@@ -512,6 +515,41 @@ async function initDB() {
           WHERE table_name = 'tournaments' AND column_name = 'bba_start_level'
         ) THEN
           ALTER TABLE tournaments ADD COLUMN bba_start_level INTEGER NOT NULL DEFAULT 6;
+        END IF;
+        
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'tournaments' AND column_name = 'break_start_time'
+        ) THEN
+          ALTER TABLE tournaments ADD COLUMN break_start_time TIMESTAMP;
+        END IF;
+        
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'tournaments' AND column_name = 'level_elapsed_before_break'
+        ) THEN
+          ALTER TABLE tournaments ADD COLUMN level_elapsed_before_break INTEGER DEFAULT 0;
+        END IF;
+        
+        -- Migrate break_completed_at to break_completed_level if it exists
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'tournaments' AND column_name = 'break_completed_at'
+        ) THEN
+          -- If break_completed_at exists, we need to migrate it
+          -- For existing data, set break_completed_level to current_level if break_completed_at is set
+          UPDATE tournaments 
+          SET break_completed_level = current_level 
+          WHERE break_completed_at IS NOT NULL AND break_completed_level IS NULL;
+          
+          ALTER TABLE tournaments DROP COLUMN break_completed_at;
+        END IF;
+        
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'tournaments' AND column_name = 'break_completed_level'
+        ) THEN
+          ALTER TABLE tournaments ADD COLUMN break_completed_level INTEGER;
         END IF;
       END \$\$;
       
@@ -607,26 +645,129 @@ app.get('/api/tournaments/:id', async (req, res) => {
     let currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
     let nextBlind = structure.levels[tournament.current_level] || null;
     
-    // Calculate time remaining in level using PostgreSQL for consistent timezone handling
+    // Check if it's break time (break occurs at the START of a break level)
+    // A break is active only if we're on a break level AND break_start_time is set AND break hasn't been completed for this level
+    const isBreakLevel = tournament.current_level > 0 && 
+                         tournament.current_level % structure.breakFrequency === 0;
+    const isBreak = isBreakLevel && 
+                     tournament.break_start_time !== null && 
+                     tournament.break_completed_level !== tournament.current_level;
+    
+    // Calculate time remaining - handle breaks separately from regular levels
     let timeRemaining = structure.levelMinutes * 60;
-    if (tournament.status === 'running' && tournament.level_start_time) {
-      // Use PostgreSQL to calculate elapsed time in seconds to avoid timezone issues
-      const elapsedResult = await pool.query(
-        `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
-         FROM tournaments WHERE id = $1`,
-        [id]
-      );
-      const elapsed = elapsedResult.rows[0]?.elapsed || 0;
-      timeRemaining = Math.max(0, (structure.levelMinutes * 60) - elapsed);
+    let breakTimeRemaining = 0;
+    
+    if (tournament.status === 'running') {
+      if (isBreak && tournament.break_start_time) {
+        // We're in a break - show break timer
+        const breakElapsedResult = await pool.query(
+          `SELECT EXTRACT(EPOCH FROM (NOW() - break_start_time))::INTEGER as elapsed
+           FROM tournaments WHERE id = $1`,
+          [id]
+        );
+        const breakElapsed = breakElapsedResult.rows[0]?.elapsed || 0;
+        breakTimeRemaining = Math.max(0, (structure.breakMinutes * 60) - breakElapsed);
+        
+        // Level timer is paused during break - use the elapsed time before break started
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.level_elapsed_before_break || 0));
+        
+        // Check if break timer has expired - if so, end the break and resume the level
+        if (breakTimeRemaining <= 0) {
+          // Break is over - resume the level timer from where it was paused
+          const levelElapsedBeforeBreak = tournament.level_elapsed_before_break || 0;
+          await pool.query(
+            `UPDATE tournaments 
+             SET break_start_time = NULL,
+                 level_start_time = NOW() - ($2 || ' seconds')::INTERVAL,
+                 level_elapsed_before_break = 0,
+                 break_completed_level = $3
+             WHERE id = $1`,
+            [id, levelElapsedBeforeBreak, tournament.current_level]
+          );
+          
+          // Refresh tournament data
+          const updatedResult = await pool.query(
+            'SELECT * FROM tournaments WHERE id = $1',
+            [id]
+          );
+          if (updatedResult.rows.length > 0) {
+            tournament = updatedResult.rows[0];
+            // Recalculate time remaining for resumed level
+            const elapsedResult = await pool.query(
+              `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+               FROM tournaments WHERE id = $1`,
+              [id]
+            );
+            const elapsed = elapsedResult.rows[0]?.elapsed || 0;
+            timeRemaining = Math.max(0, (structure.levelMinutes * 60) - elapsed);
+            breakTimeRemaining = 0;
+          }
+        }
+      } else if (isBreakLevel && !tournament.break_start_time && tournament.level_start_time && tournament.break_completed_level !== tournament.current_level) {
+        // Just entered a break level - pause the level timer and start break timer
+        // Only start break if break hasn't been completed for this level
+        const levelElapsedResult = await pool.query(
+          `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+           FROM tournaments WHERE id = $1`,
+          [id]
+        );
+        const levelElapsed = levelElapsedResult.rows[0]?.elapsed || 0;
+        
+        await pool.query(
+          `UPDATE tournaments 
+           SET break_start_time = NOW(),
+               level_elapsed_before_break = $2
+           WHERE id = $1`,
+          [id, levelElapsed]
+        );
+        
+        // Refresh tournament data
+        const updatedResult = await pool.query(
+          'SELECT * FROM tournaments WHERE id = $1',
+          [id]
+        );
+        if (updatedResult.rows.length > 0) {
+          tournament = updatedResult.rows[0];
+        }
+        
+        // Set break timer
+        breakTimeRemaining = structure.breakMinutes * 60;
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - levelElapsed);
+      } else if (tournament.level_start_time && !isBreak) {
+        // Normal level (or break level with break skipped) - calculate time remaining
+        const elapsedResult = await pool.query(
+          `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+           FROM tournaments WHERE id = $1`,
+          [id]
+        );
+        const elapsed = elapsedResult.rows[0]?.elapsed || 0;
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - elapsed);
+        
+        // Clear break_start_time if set (but keep break_completed_level to prevent restart)
+        if (tournament.break_start_time) {
+          await pool.query(
+            `UPDATE tournaments 
+             SET break_start_time = NULL
+             WHERE id = $1`,
+            [id]
+          );
+        }
+      }
     } else if (tournament.status === 'paused') {
-      timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.elapsed_before_pause || 0));
+      // Tournament is paused - use stored elapsed time
+      if (isBreak && tournament.break_start_time) {
+        // Paused during break
+        breakTimeRemaining = Math.max(0, (structure.breakMinutes * 60) - (tournament.elapsed_before_pause || 0));
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.level_elapsed_before_break || 0));
+      } else {
+        // Paused during normal level
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.elapsed_before_pause || 0));
+      }
     }
     
-    // Automatic level advancement when timer expires (only if tournament is running)
-    // Only advance if timer has actually expired (timeRemaining <= 0) and we haven't just advanced
-    // Check if level_start_time is recent (within last 2 seconds) to prevent multiple rapid advancements
-    if (tournament.status === 'running' && timeRemaining <= 0 && tournament.level_start_time) {
-      // Verify the level hasn't just been advanced (check if level_start_time is older than 1 second)
+    // Automatic level advancement when timer expires (only if tournament is running and NOT in break)
+    if (tournament.status === 'running' && !isBreak && timeRemaining <= 0 && tournament.level_start_time) {
+      // Verify the level hasn't just been advanced
       const timeSinceStartResult = await pool.query(
         `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
          FROM tournaments WHERE id = $1`,
@@ -635,7 +776,6 @@ app.get('/api/tournaments/:id', async (req, res) => {
       const timeSinceStart = timeSinceStartResult.rows[0]?.elapsed || 0;
       
       // Only advance if the level has been running for at least the full duration
-      // This prevents rapid-fire advancements on every request
       if (timeSinceStart >= structure.levelMinutes * 60) {
         // Check if there are more levels available
         if (tournament.current_level < structure.levels.length) {
@@ -644,7 +784,9 @@ app.get('/api/tournaments/:id', async (req, res) => {
             `UPDATE tournaments 
              SET current_level = current_level + 1, 
                  level_start_time = NOW(),
-                 elapsed_before_pause = 0
+                 elapsed_before_pause = 0,
+                 break_start_time = NULL,
+                 level_elapsed_before_break = 0
              WHERE id = $1`,
             [id]
           );
@@ -666,10 +808,6 @@ app.get('/api/tournaments/:id', async (req, res) => {
       }
     }
     
-    // Check if it's break time
-    const isBreak = tournament.current_level > 0 && 
-                    tournament.current_level % structure.breakFrequency === 0;
-    
     // Calculate chip distribution
     const chipDistribution = calculateChipDistribution(
       tournament.starting_stack, 
@@ -677,6 +815,45 @@ app.get('/api/tournaments/:id', async (req, res) => {
       structure,
       tournament.max_reentries || 0
     );
+    
+    // Calculate leaderboard
+    // Calculate total bounties paid (sum of all bounty amounts from knockouts)
+    const totalBountiesPaid = knockoutsResult.rows.reduce((sum, ko) => {
+      return sum + parseFloat(ko.bounty_amount || 0);
+    }, 0);
+    
+    // Sort entries for leaderboard:
+    // 1. Active players first (sorted by entry creation time, earliest first = better rank)
+    // 2. Eliminated players (sorted by elimination time, most recent elimination = better rank)
+    const activePlayers = entries.filter(e => !e.is_eliminated)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const eliminatedPlayers = entries.filter(e => e.is_eliminated)
+      .sort((a, b) => new Date(b.eliminated_at || 0) - new Date(a.eliminated_at || 0));
+    
+    const leaderboard = [...activePlayers, ...eliminatedPlayers].map((entry, index) => {
+      const position = index + 1;
+      let prize = 0;
+      
+      // Calculate prize based on tournament status
+      if (tournament.status === 'ended') {
+        // When tournament is finished, winner (first in leaderboard) gets prize pool minus bounties
+        if (position === 1 && !entry.is_eliminated) {
+          prize = Math.max(0, totalPrizePool - totalBountiesPaid);
+        }
+      }
+      // For active tournaments, prize is 0 (or could show estimated prizes)
+      
+      return {
+        position,
+        entry_id: entry.id,
+        player_name: entry.player_name,
+        entry_number: entry.entry_number,
+        is_eliminated: entry.is_eliminated,
+        eliminated_at: entry.eliminated_at,
+        bounty_collected: parseFloat(entry.bounty_collected || 0),
+        prize: prize
+      };
+    });
     
     res.json({
       ...tournament,
@@ -696,10 +873,17 @@ app.get('/api/tournaments/:id', async (req, res) => {
         averageStack,
         currentBlind,
         nextBlind,
-        timeRemaining,
+        timeRemaining: isBreak && breakTimeRemaining > 0 ? breakTimeRemaining : timeRemaining,
+        levelTimeRemaining: timeRemaining,
+        breakTimeRemaining: breakTimeRemaining,
         levelMinutes: structure.levelMinutes,
         isBreak,
         breakMinutes: structure.breakMinutes
+      },
+      leaderboard: {
+        rankings: leaderboard,
+        totalBountiesPaid,
+        prizePool: totalPrizePool
       }
     });
   } catch (err) {
@@ -776,23 +960,46 @@ app.patch('/api/tournaments/:id/status', async (req, res) => {
     if (status === 'running') {
       if (current.status === 'paused') {
         // Resume from pause
-        // Calculate the new level_start_time by subtracting elapsed time from NOW()
-        // elapsed_before_pause is in seconds, so we convert it to an interval
-        const elapsedSeconds = current.elapsed_before_pause || 0;
-        updateQuery = `
-          UPDATE tournaments 
-          SET status = $1, 
-              level_start_time = NOW() - MAKE_INTERVAL(seconds => $3),
-              elapsed_before_pause = 0
-          WHERE id = $2
-          RETURNING *
-        `;
-        params = [status, id, elapsedSeconds];
+        // Check if we're resuming during a break or regular level
+        const speedConfig = SPEED_CONFIG[current.speed] || SPEED_CONFIG.normal;
+        const isBreak = current.current_level > 0 && 
+                        current.current_level % speedConfig.breakFrequency === 0;
+        
+        if (isBreak && current.break_start_time) {
+          // Resuming during a break - restore break timer
+          const breakElapsedSeconds = current.elapsed_before_pause || 0;
+          updateQuery = `
+            UPDATE tournaments 
+            SET status = $1, 
+                break_start_time = NOW() - ($3 || ' seconds')::INTERVAL,
+                elapsed_before_pause = 0
+            WHERE id = $2
+            RETURNING *
+          `;
+          params = [status, id, breakElapsedSeconds];
+        } else {
+          // Resuming during a regular level - restore level timer
+          const elapsedSeconds = current.elapsed_before_pause || 0;
+          updateQuery = `
+            UPDATE tournaments 
+            SET status = $1, 
+                level_start_time = NOW() - ($3 || ' seconds')::INTERVAL,
+                elapsed_before_pause = 0
+            WHERE id = $2
+            RETURNING *
+          `;
+          params = [status, id, elapsedSeconds];
+        }
       } else {
         // Fresh start
         updateQuery = `
           UPDATE tournaments 
-          SET status = $1, level_start_time = NOW(), elapsed_before_pause = 0
+          SET status = $1, 
+              level_start_time = NOW(), 
+              elapsed_before_pause = 0,
+              break_start_time = NULL,
+              level_elapsed_before_break = 0,
+              break_completed_level = NULL
           WHERE id = $2
           RETURNING *
         `;
@@ -800,8 +1007,23 @@ app.patch('/api/tournaments/:id/status', async (req, res) => {
       }
     } else if (status === 'paused') {
       // Calculate elapsed time before pause (in seconds)
-      // Only calculate if level_start_time exists and tournament was running
-      if (current.level_start_time && current.status === 'running') {
+      // Handle breaks separately from regular levels
+      const speedConfig = SPEED_CONFIG[current.speed] || SPEED_CONFIG.normal;
+      const isBreak = current.current_level > 0 && 
+                      current.current_level % speedConfig.breakFrequency === 0;
+      
+      if (isBreak && current.break_start_time && current.status === 'running') {
+        // Pausing during a break - save break elapsed time
+        updateQuery = `
+          UPDATE tournaments 
+          SET status = $1, 
+              elapsed_before_pause = EXTRACT(EPOCH FROM (NOW() - break_start_time))::INTEGER,
+              pause_time = NOW()
+          WHERE id = $2
+          RETURNING *
+        `;
+      } else if (current.level_start_time && current.status === 'running') {
+        // Pausing during a regular level
         updateQuery = `
           UPDATE tournaments 
           SET status = $1, 
@@ -811,7 +1033,7 @@ app.patch('/api/tournaments/:id/status', async (req, res) => {
           RETURNING *
         `;
       } else {
-        // If no level_start_time, keep existing elapsed_before_pause
+        // If no start time, keep existing elapsed_before_pause
         updateQuery = `
           UPDATE tournaments 
           SET status = $1, 
@@ -834,6 +1056,50 @@ app.patch('/api/tournaments/:id/status', async (req, res) => {
   }
 });
 
+// Skip break (end break and resume level timer)
+app.patch('/api/tournaments/:id/skip-break', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get tournament to check if in break and get elapsed time
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Check if actually in a break
+    if (!tournament.break_start_time) {
+      return res.status(400).json({ error: 'Not currently in a break' });
+    }
+    
+    const levelElapsedBeforeBreak = tournament.level_elapsed_before_break || 0;
+    
+    // End break and resume level timer from where it was paused
+    // Mark break as completed for this level so it doesn't restart
+    await pool.query(
+      `UPDATE tournaments 
+       SET break_start_time = NULL,
+           level_start_time = NOW() - ($2 || ' seconds')::INTERVAL,
+           level_elapsed_before_break = 0,
+           break_completed_level = $3
+       WHERE id = $1`,
+      [id, levelElapsedBeforeBreak, tournament.current_level]
+    );
+    
+    // Return success - client will refresh to get updated tournament data
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // Advance to next level
 app.patch('/api/tournaments/:id/next-level', async (req, res) => {
   try {
@@ -843,7 +1109,9 @@ app.patch('/api/tournaments/:id/next-level', async (req, res) => {
       `UPDATE tournaments 
        SET current_level = current_level + 1, 
            level_start_time = NOW(),
-           elapsed_before_pause = 0
+           elapsed_before_pause = 0,
+           break_start_time = NULL,
+           level_elapsed_before_break = 0
        WHERE id = $1
        RETURNING *`,
       [id]

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useTournament, useTimer } from '../hooks/useTournament';
 import { formatCurrency, formatNumber, formatTime, advanceLevel } from '../utils/api';
+import Leaderboard from '../components/Leaderboard';
 
 export default function PublicDisplay() {
   const { id } = useParams();
@@ -182,7 +183,9 @@ export default function PublicDisplay() {
               {formatTime(localTimeRemaining)}
             </div>
             <div className="text-gray-500 text-sm">
-              {stats?.levelMinutes} minute levels
+              {stats?.isBreak 
+                ? `${stats?.breakMinutes} minute break` 
+                : `${stats?.levelMinutes} minute levels`}
             </div>
           </div>
 
@@ -263,68 +266,76 @@ export default function PublicDisplay() {
           </div>
         </div>
 
-        {/* Right Side - Blinds Structure (1/3 width) */}
-        <div className="card p-6 overflow-hidden flex flex-col" style={{ width: '33.333%' }}>
-          <h2 className="font-display text-lg md:text-xl font-bold text-white mb-4 pb-3 border-b border-white/10">
-            Blind Structure
-          </h2>
-          <div className="flex-1 overflow-y-auto">
-            <div className="space-y-1">
-              {blindStructure.map((level, index) => {
-                const levelNum = index + 1;
-                const isCurrent = levelNum === tournament.current_level;
-                const isPast = levelNum < tournament.current_level;
-                const isNext = levelNum === tournament.current_level + 1;
-                
-                return (
-                  <div
-                    key={index}
-                    className={`p-3 rounded-lg transition-all ${
-                      isCurrent
-                        ? 'bg-gold-500/20 border-2 border-gold-500/50'
-                        : isPast
-                        ? 'bg-casino-black/50 opacity-60'
-                        : isNext
-                        ? 'bg-amber-500/10 border border-amber-500/30'
-                        : 'bg-casino-black/30 hover:bg-casino-black/50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`font-mono text-sm font-bold ${
-                          isCurrent ? 'text-gold-400' : isPast ? 'text-gray-500' : 'text-gray-400'
-                        }`}>
-                          {levelNum}
-                        </span>
-                        <div className="font-mono text-sm">
-                          <span className={isCurrent ? 'text-gold-400 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
-                            {formatNumber(level.sb)}
+        {/* Right Side - Blinds Structure & Leaderboard (1/3 width) */}
+        <div className="flex flex-col gap-6" style={{ width: '33.333%' }}>
+          {/* Leaderboard */}
+          {tournament.leaderboard && (
+            <Leaderboard leaderboard={tournament.leaderboard} tournamentStatus={tournament.status} />
+          )}
+          
+          {/* Blind Structure */}
+          <div className="card p-6 overflow-hidden flex flex-col flex-1">
+            <h2 className="font-display text-lg md:text-xl font-bold text-white mb-4 pb-3 border-b border-white/10">
+              Blind Structure
+            </h2>
+            <div className="flex-1 overflow-y-auto">
+              <div className="space-y-1">
+                {blindStructure.map((level, index) => {
+                  const levelNum = index + 1;
+                  const isCurrent = levelNum === tournament.current_level;
+                  const isPast = levelNum < tournament.current_level;
+                  const isNext = levelNum === tournament.current_level + 1;
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg transition-all ${
+                        isCurrent
+                          ? 'bg-gold-500/20 border-2 border-gold-500/50'
+                          : isPast
+                          ? 'bg-casino-black/50 opacity-60'
+                          : isNext
+                          ? 'bg-amber-500/10 border border-amber-500/30'
+                          : 'bg-casino-black/30 hover:bg-casino-black/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className={`font-mono text-sm font-bold ${
+                            isCurrent ? 'text-gold-400' : isPast ? 'text-gray-500' : 'text-gray-400'
+                          }`}>
+                            {levelNum}
                           </span>
-                          <span className="text-gray-600 mx-1">/</span>
-                          <span className={isCurrent ? 'text-gold-300 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
-                            {formatNumber(level.bb)}
-                          </span>
-                          {level.ante > 0 && (
-                            <>
-                              <span className="text-gray-600 mx-1">|</span>
-                              <span className={`text-xs ${
-                                isCurrent ? 'text-emerald-400' : isPast ? 'text-gray-500' : 'text-gray-400'
-                              }`}>
-                                A: {formatNumber(level.ante)}
-                              </span>
-                            </>
-                          )}
+                          <div className="font-mono text-sm">
+                            <span className={isCurrent ? 'text-gold-400 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
+                              {formatNumber(level.sb)}
+                            </span>
+                            <span className="text-gray-600 mx-1">/</span>
+                            <span className={isCurrent ? 'text-gold-300 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
+                              {formatNumber(level.bb)}
+                            </span>
+                            {level.ante > 0 && (
+                              <>
+                                <span className="text-gray-600 mx-1">|</span>
+                                <span className={`text-xs ${
+                                  isCurrent ? 'text-emerald-400' : isPast ? 'text-gray-500' : 'text-gray-400'
+                                }`}>
+                                  A: {formatNumber(level.ante)}
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </div>
+                        {isCurrent && (
+                          <span className="text-xs px-2 py-0.5 bg-gold-500/30 text-gold-300 rounded font-semibold">
+                            Current
+                          </span>
+                        )}
                       </div>
-                      {isCurrent && (
-                        <span className="text-xs px-2 py-0.5 bg-gold-500/30 text-gold-300 rounded font-semibold">
-                          Current
-                        </span>
-                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
