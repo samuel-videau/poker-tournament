@@ -607,41 +607,61 @@ app.get('/api/tournaments/:id', async (req, res) => {
     let currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
     let nextBlind = structure.levels[tournament.current_level] || null;
     
-    // Calculate time remaining in level
+    // Calculate time remaining in level using PostgreSQL for consistent timezone handling
     let timeRemaining = structure.levelMinutes * 60;
     if (tournament.status === 'running' && tournament.level_start_time) {
-      const elapsed = Math.floor((Date.now() - new Date(tournament.level_start_time).getTime()) / 1000);
+      // Use PostgreSQL to calculate elapsed time in seconds to avoid timezone issues
+      const elapsedResult = await pool.query(
+        `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+         FROM tournaments WHERE id = $1`,
+        [id]
+      );
+      const elapsed = elapsedResult.rows[0]?.elapsed || 0;
       timeRemaining = Math.max(0, (structure.levelMinutes * 60) - elapsed);
     } else if (tournament.status === 'paused') {
-      timeRemaining = (structure.levelMinutes * 60) - (tournament.elapsed_before_pause || 0);
+      timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.elapsed_before_pause || 0));
     }
     
     // Automatic level advancement when timer expires (only if tournament is running)
+    // Only advance if timer has actually expired (timeRemaining <= 0) and we haven't just advanced
+    // Check if level_start_time is recent (within last 2 seconds) to prevent multiple rapid advancements
     if (tournament.status === 'running' && timeRemaining <= 0 && tournament.level_start_time) {
-      // Check if there are more levels available
-      if (tournament.current_level < structure.levels.length) {
-        // Automatically advance to next level
-        await pool.query(
-          `UPDATE tournaments 
-           SET current_level = current_level + 1, 
-               level_start_time = NOW(),
-               elapsed_before_pause = 0
-           WHERE id = $1`,
-          [id]
-        );
-        
-        // Refresh tournament data after advancement
-        const updatedResult = await pool.query(
-          'SELECT * FROM tournaments WHERE id = $1',
-          [id]
-        );
-        if (updatedResult.rows.length > 0) {
-          tournament = updatedResult.rows[0];
-          // Recalculate time remaining for new level
-          timeRemaining = structure.levelMinutes * 60;
-          // Recalculate current and next blinds for the new level
-          currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
-          nextBlind = structure.levels[tournament.current_level] || null;
+      // Verify the level hasn't just been advanced (check if level_start_time is older than 1 second)
+      const timeSinceStartResult = await pool.query(
+        `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+         FROM tournaments WHERE id = $1`,
+        [id]
+      );
+      const timeSinceStart = timeSinceStartResult.rows[0]?.elapsed || 0;
+      
+      // Only advance if the level has been running for at least the full duration
+      // This prevents rapid-fire advancements on every request
+      if (timeSinceStart >= structure.levelMinutes * 60) {
+        // Check if there are more levels available
+        if (tournament.current_level < structure.levels.length) {
+          // Automatically advance to next level
+          await pool.query(
+            `UPDATE tournaments 
+             SET current_level = current_level + 1, 
+                 level_start_time = NOW(),
+                 elapsed_before_pause = 0
+             WHERE id = $1`,
+            [id]
+          );
+          
+          // Refresh tournament data after advancement
+          const updatedResult = await pool.query(
+            'SELECT * FROM tournaments WHERE id = $1',
+            [id]
+          );
+          if (updatedResult.rows.length > 0) {
+            tournament = updatedResult.rows[0];
+            // Recalculate time remaining for new level
+            timeRemaining = structure.levelMinutes * 60;
+            // Recalculate current and next blinds for the new level
+            currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
+            nextBlind = structure.levels[tournament.current_level] || null;
+          }
         }
       }
     }
@@ -756,13 +776,18 @@ app.patch('/api/tournaments/:id/status', async (req, res) => {
     if (status === 'running') {
       if (current.status === 'paused') {
         // Resume from pause
+        // Calculate the new level_start_time by subtracting elapsed time from NOW()
+        // elapsed_before_pause is in seconds, so we convert it to an interval
+        const elapsedSeconds = current.elapsed_before_pause || 0;
         updateQuery = `
           UPDATE tournaments 
-          SET status = $1, level_start_time = NOW() - (elapsed_before_pause || '0 seconds')::interval
+          SET status = $1, 
+              level_start_time = NOW() - MAKE_INTERVAL(seconds => $3),
+              elapsed_before_pause = 0
           WHERE id = $2
           RETURNING *
         `;
-        params = [status, id];
+        params = [status, id, elapsedSeconds];
       } else {
         // Fresh start
         updateQuery = `
@@ -774,15 +799,27 @@ app.patch('/api/tournaments/:id/status', async (req, res) => {
         params = [status, id];
       }
     } else if (status === 'paused') {
-      // Calculate elapsed time before pause
-      updateQuery = `
-        UPDATE tournaments 
-        SET status = $1, 
-            elapsed_before_pause = EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER,
-            pause_time = NOW()
-        WHERE id = $2
-        RETURNING *
-      `;
+      // Calculate elapsed time before pause (in seconds)
+      // Only calculate if level_start_time exists and tournament was running
+      if (current.level_start_time && current.status === 'running') {
+        updateQuery = `
+          UPDATE tournaments 
+          SET status = $1, 
+              elapsed_before_pause = EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER,
+              pause_time = NOW()
+          WHERE id = $2
+          RETURNING *
+        `;
+      } else {
+        // If no level_start_time, keep existing elapsed_before_pause
+        updateQuery = `
+          UPDATE tournaments 
+          SET status = $1, 
+              pause_time = NOW()
+          WHERE id = $2
+          RETURNING *
+        `;
+      }
       params = [status, id];
     } else {
       updateQuery = 'UPDATE tournaments SET status = $1 WHERE id = $2 RETURNING *';
