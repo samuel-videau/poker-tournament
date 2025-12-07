@@ -12,11 +12,13 @@ export default function PublicDisplay() {
   // Calculate local time remaining
   const [localTimeRemaining, setLocalTimeRemaining] = useState(0);
   
+  // Initialize and sync with server time when level changes, status changes, or tournament data updates
   useEffect(() => {
     if (!tournament?.stats) return;
+    // Update timer when level changes or when status changes (e.g., paused -> running)
     setLocalTimeRemaining(tournament.stats.timeRemaining);
     setPlayedLevelEnd(false);
-  }, [tournament?.current_level]);
+  }, [tournament?.current_level, tournament?.status]);
 
   // Local countdown for smooth display
   useEffect(() => {
@@ -39,16 +41,19 @@ export default function PublicDisplay() {
     return () => clearInterval(interval);
   }, [tournament?.status, playedLevelEnd]);
 
-  // Sync with server time periodically
+  // Sync with server time periodically to prevent drift
   useEffect(() => {
-    if (tournament?.stats?.timeRemaining !== undefined) {
+    if (tournament?.status === 'running' && tournament?.stats?.timeRemaining !== undefined) {
       // Only sync if difference is more than 2 seconds
-      const diff = Math.abs(localTimeRemaining - tournament.stats.timeRemaining);
-      if (diff > 2) {
-        setLocalTimeRemaining(tournament.stats.timeRemaining);
-      }
+      setLocalTimeRemaining(prev => {
+        const diff = Math.abs(prev - tournament.stats.timeRemaining);
+        if (diff > 2) {
+          return tournament.stats.timeRemaining;
+        }
+        return prev;
+      });
     }
-  }, [tournament?.stats?.timeRemaining]);
+  }, [tournament?.stats?.timeRemaining, tournament?.status]);
 
   if (loading) {
     return (

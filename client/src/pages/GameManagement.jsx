@@ -11,6 +11,7 @@ import {
   formatTime 
 } from '../utils/api';
 import BlindLevel from '../components/BlindLevel';
+import ChipStack from '../components/ChipStack';
 
 const STATUS_COLORS = {
   pending: 'badge-pending',
@@ -21,7 +22,7 @@ const STATUS_COLORS = {
 
 export default function GameManagement() {
   const { id } = useParams();
-  const { tournament, loading, error, refresh } = useTournament(id);
+  const { tournament, loading, error, refresh } = useTournament(id, 1000);
   
   const [newPlayerName, setNewPlayerName] = useState('');
   const [showKOModal, setShowKOModal] = useState(false);
@@ -29,6 +30,9 @@ export default function GameManagement() {
   const [koEliminated, setKoEliminated] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState(null);
+  
+  // Local timer state for smooth countdown
+  const [localTimeRemaining, setLocalTimeRemaining] = useState(0);
 
   // Clear action error after 5 seconds
   useEffect(() => {
@@ -37,6 +41,43 @@ export default function GameManagement() {
       return () => clearTimeout(timer);
     }
   }, [actionError]);
+
+  // Initialize and sync local timer with server time when level changes or status changes
+  useEffect(() => {
+    if (!tournament?.stats) return;
+    // Update timer when level changes or when status changes (e.g., paused -> running)
+    setLocalTimeRemaining(tournament.stats.timeRemaining);
+  }, [tournament?.current_level, tournament?.status]);
+
+  // Local countdown for smooth display when tournament is running
+  useEffect(() => {
+    if (tournament?.status !== 'running') return;
+    
+    const interval = setInterval(() => {
+      setLocalTimeRemaining(prev => {
+        if (prev <= 1) {
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [tournament?.status]);
+
+  // Sync with server time periodically to prevent drift
+  useEffect(() => {
+    if (tournament?.status === 'running' && tournament?.stats?.timeRemaining !== undefined) {
+      // Only sync if difference is more than 2 seconds
+      setLocalTimeRemaining(prev => {
+        const diff = Math.abs(prev - tournament.stats.timeRemaining);
+        if (diff > 2) {
+          return tournament.stats.timeRemaining;
+        }
+        return prev;
+      });
+    }
+  }, [tournament?.stats?.timeRemaining, tournament?.status]);
 
   const handleStatusChange = async (status) => {
     setActionLoading(true);
@@ -188,7 +229,7 @@ export default function GameManagement() {
                 <div>
                   <h3 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Level Timer</h3>
                   <div className="timer-display text-5xl font-bold text-gold-400">
-                    {formatTime(stats?.timeRemaining || 0)}
+                    {formatTime(tournament?.status === 'running' ? localTimeRemaining : (stats?.timeRemaining || 0))}
                   </div>
                   <div className="text-gray-500 text-sm mt-1">
                     {stats?.levelMinutes} min levels
@@ -415,6 +456,41 @@ export default function GameManagement() {
                 </div>
               </dl>
             </div>
+
+            {/* Chip Distribution */}
+            {tournament.chipDistribution && (
+              <div className="card p-4">
+                <h3 className="font-display text-lg text-white mb-4">Chip Distribution</h3>
+                <ChipStack distribution={tournament.chipDistribution} />
+              </div>
+            )}
+
+            {/* Blind Structure */}
+            {tournament.blindStructure && tournament.blindStructure.levels && (
+              <div className="card p-4">
+                <h3 className="font-display text-lg text-white mb-4">Blind Structure</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {tournament.blindStructure.levels.slice(0, 10).map((level, i) => (
+                    <div key={i} className="p-2 bg-casino-black/50 rounded text-center">
+                      <div className="text-xs text-gray-500">Level {i + 1}</div>
+                      <div className="font-mono text-sm">
+                        <span className="text-gold-400">{formatNumber(level.sb)}</span>
+                        <span className="text-gray-600">/</span>
+                        <span className="text-gold-300">{formatNumber(level.bb)}</span>
+                      </div>
+                      {level.ante > 0 && (
+                        <div className="text-xs text-emerald-500">A: {formatNumber(level.ante)}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {tournament.blindStructure.levels.length > 10 && (
+                  <div className="text-xs text-gray-500 mt-2 text-center">
+                    +{tournament.blindStructure.levels.length - 10} more levels
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>
