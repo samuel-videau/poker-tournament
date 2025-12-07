@@ -46,7 +46,7 @@ export default function PublicDisplay() {
           audioRef.current?.play().catch(() => {});
           setPlayedLevelEnd(true);
           playedLevelEndRef.current = true;
-          // The server polling will pick up the level change when host advances it
+          // The server will automatically advance the level when timer expires
         }
         
         return newTime;

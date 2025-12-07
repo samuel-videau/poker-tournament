@@ -44,9 +44,8 @@ export default function GameManagement() {
 
   const countdownIntervalRef = useRef(null);
   const syncIntervalRef = useRef(null);
-  const hasAdvancedRef = useRef(false);
   
-  // Define handleNextLevel before it's used in useEffect
+  // Define handleNextLevel for manual advancement
   const handleNextLevel = useCallback(async () => {
     setActionLoading(true);
     try {
@@ -64,7 +63,6 @@ export default function GameManagement() {
     if (!tournament?.stats) return;
     // Reset timer when level changes or status changes
     setLocalTimeRemaining(tournament.stats.timeRemaining);
-    hasAdvancedRef.current = false; // Reset the flag when level changes
   }, [tournament?.current_level, tournament?.status]);
 
   // Local countdown for smooth display - only when running
@@ -83,13 +81,8 @@ export default function GameManagement() {
     countdownIntervalRef.current = setInterval(() => {
       setLocalTimeRemaining(prev => {
         const newTime = prev > 0 ? prev - 1 : 0;
-        
-        // When timer reaches 0, automatically advance level (only once)
-        if (newTime === 0 && prev > 0 && !hasAdvancedRef.current) {
-          hasAdvancedRef.current = true;
-          handleNextLevel();
-        }
-        
+        // Server will automatically advance level when timer expires
+        // No need to call handleNextLevel here
         return newTime;
       });
     }, 1000);
@@ -100,7 +93,7 @@ export default function GameManagement() {
         countdownIntervalRef.current = null;
       }
     };
-  }, [tournament?.status, tournament?.current_level, handleNextLevel]);
+  }, [tournament?.status, tournament?.current_level]);
 
   // Periodic sync with server to prevent drift (every 10 seconds)
   useEffect(() => {
@@ -260,6 +253,9 @@ export default function GameManagement() {
                 {/* Current Blinds */}
                 <div>
                   <h3 className="text-sm uppercase tracking-wider text-gray-500 mb-3">Current Blinds</h3>
+                  <div className="text-xs uppercase tracking-wider text-gray-600 mb-2">
+                    Level {tournament.current_level}
+                  </div>
                   <BlindLevel level={stats?.currentBlind} size="large" />
                   
                   {stats?.nextBlind && (
@@ -512,28 +508,69 @@ export default function GameManagement() {
 
             {/* Blind Structure */}
             {tournament.blindStructure && tournament.blindStructure.levels && (
-              <div className="card p-4">
-                <h3 className="font-display text-lg text-white mb-4">Blind Structure</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {tournament.blindStructure.levels.slice(0, 10).map((level, i) => (
-                    <div key={i} className="p-2 bg-casino-black/50 rounded text-center">
-                      <div className="text-xs text-gray-500">Level {i + 1}</div>
-                      <div className="font-mono text-sm">
-                        <span className="text-gold-400">{formatNumber(level.sb)}</span>
-                        <span className="text-gray-600">/</span>
-                        <span className="text-gold-300">{formatNumber(level.bb)}</span>
-                      </div>
-                      {level.ante > 0 && (
-                        <div className="text-xs text-emerald-500">A: {formatNumber(level.ante)}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {tournament.blindStructure.levels.length > 10 && (
-                  <div className="text-xs text-gray-500 mt-2 text-center">
-                    +{tournament.blindStructure.levels.length - 10} more levels
+              <div className="card p-4 overflow-hidden flex flex-col">
+                <h3 className="font-display text-lg text-white mb-4 pb-3 border-b border-white/10">
+                  Blind Structure
+                </h3>
+                <div className="flex-1 overflow-y-auto max-h-96">
+                  <div className="space-y-1">
+                    {tournament.blindStructure.levels.map((level, index) => {
+                      const levelNum = index + 1;
+                      const isCurrent = levelNum === tournament.current_level;
+                      const isPast = levelNum < tournament.current_level;
+                      const isNext = levelNum === tournament.current_level + 1;
+                      
+                      return (
+                        <div
+                          key={index}
+                          className={`p-3 rounded-lg transition-all ${
+                            isCurrent
+                              ? 'bg-gold-500/20 border-2 border-gold-500/50'
+                              : isPast
+                              ? 'bg-casino-black/50 opacity-60'
+                              : isNext
+                              ? 'bg-amber-500/10 border border-amber-500/30'
+                              : 'bg-casino-black/30 hover:bg-casino-black/50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span className={`font-mono text-sm font-bold ${
+                                isCurrent ? 'text-gold-400' : isPast ? 'text-gray-500' : 'text-gray-400'
+                              }`}>
+                                {levelNum}
+                              </span>
+                              <div className="font-mono text-sm">
+                                <span className={isCurrent ? 'text-gold-400 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
+                                  {formatNumber(level.sb)}
+                                </span>
+                                <span className="text-gray-600 mx-1">/</span>
+                                <span className={isCurrent ? 'text-gold-300 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
+                                  {formatNumber(level.bb)}
+                                </span>
+                                {level.ante > 0 && (
+                                  <>
+                                    <span className="text-gray-600 mx-1">|</span>
+                                    <span className={`text-xs ${
+                                      isCurrent ? 'text-emerald-400' : isPast ? 'text-gray-500' : 'text-gray-400'
+                                    }`}>
+                                      A: {formatNumber(level.ante)}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {isCurrent && (
+                              <span className="text-xs px-2 py-0.5 bg-gold-500/30 text-gold-300 rounded font-semibold">
+                                Current
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>

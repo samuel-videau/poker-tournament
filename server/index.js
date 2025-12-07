@@ -570,7 +570,7 @@ app.get('/api/tournaments/:id', async (req, res) => {
       return res.status(404).json({ error: 'Tournament not found' });
     }
     
-    const tournament = tournamentResult.rows[0];
+    let tournament = tournamentResult.rows[0];
     
     // Get entries
     const entriesResult = await pool.query(
@@ -604,8 +604,8 @@ app.get('/api/tournaments/:id', async (req, res) => {
     const blindIncreaseRate = tournament.blind_increase_rate || 1.25; // Default to 1.25x for existing tournaments
     const bbaStartLevel = tournament.bba_start_level || 6; // Default to level 6 for existing tournaments
     const structure = generateBlindStructure(tournament.starting_stack, tournament.speed, startingBlindDepth, blindIncreaseRate, bbaStartLevel);
-    const currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
-    const nextBlind = structure.levels[tournament.current_level] || null;
+    let currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
+    let nextBlind = structure.levels[tournament.current_level] || null;
     
     // Calculate time remaining in level
     let timeRemaining = structure.levelMinutes * 60;
@@ -614,6 +614,36 @@ app.get('/api/tournaments/:id', async (req, res) => {
       timeRemaining = Math.max(0, (structure.levelMinutes * 60) - elapsed);
     } else if (tournament.status === 'paused') {
       timeRemaining = (structure.levelMinutes * 60) - (tournament.elapsed_before_pause || 0);
+    }
+    
+    // Automatic level advancement when timer expires (only if tournament is running)
+    if (tournament.status === 'running' && timeRemaining <= 0 && tournament.level_start_time) {
+      // Check if there are more levels available
+      if (tournament.current_level < structure.levels.length) {
+        // Automatically advance to next level
+        await pool.query(
+          `UPDATE tournaments 
+           SET current_level = current_level + 1, 
+               level_start_time = NOW(),
+               elapsed_before_pause = 0
+           WHERE id = $1`,
+          [id]
+        );
+        
+        // Refresh tournament data after advancement
+        const updatedResult = await pool.query(
+          'SELECT * FROM tournaments WHERE id = $1',
+          [id]
+        );
+        if (updatedResult.rows.length > 0) {
+          tournament = updatedResult.rows[0];
+          // Recalculate time remaining for new level
+          timeRemaining = structure.levelMinutes * 60;
+          // Recalculate current and next blinds for the new level
+          currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
+          nextBlind = structure.levels[tournament.current_level] || null;
+        }
+      }
     }
     
     // Check if it's break time
