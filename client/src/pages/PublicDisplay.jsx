@@ -101,7 +101,7 @@ export default function PublicDisplay() {
       <div className="min-h-screen animated-bg flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-gold-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-gold-400/70 mt-4 font-display text-xl">Loading Tournament...</p>
+          <p className="text-gold-400/70 mt-4 font-display text-2xl">Loading Tournament...</p>
         </div>
       </div>
     );
@@ -112,7 +112,7 @@ export default function PublicDisplay() {
       <div className="min-h-screen animated-bg flex items-center justify-center">
         <div className="text-center">
           <div className="text-8xl mb-4">🃏</div>
-          <h2 className="text-4xl font-display text-red-400">{error || 'Tournament Not Found'}</h2>
+          <h2 className="text-5xl font-display text-red-400">{error || 'Tournament Not Found'}</h2>
         </div>
       </div>
     );
@@ -142,27 +142,27 @@ export default function PublicDisplay() {
       <header className="border-b border-white/5 bg-casino-black/50 backdrop-blur-sm sticky top-0 z-40">
         <div className="max-w-[1920px] mx-auto px-8 py-4 flex items-center justify-between">
           <div>
-            <h1 className="font-display text-3xl md:text-4xl font-bold gold-text">
+            <h1 className="font-display text-4xl md:text-5xl font-bold gold-text">
               {tournament.name}
             </h1>
-            <p className="text-gray-500 text-sm md:text-base mt-1 capitalize">
+            <p className="text-gray-500 text-base md:text-lg mt-1 capitalize">
               {tournament.type.replace('_', ' ')} • {tournament.speed} Speed
             </p>
           </div>
           
           <div className="text-right">
             {isPending && (
-              <div className="text-lg md:text-xl text-gray-400 font-display">
+              <div className="text-xl md:text-2xl text-gray-400 font-display">
                 ⏳ Waiting to Start
               </div>
             )}
             {isPaused && (
-              <div className="text-xl md:text-2xl text-amber-400 font-display animate-pulse">
+              <div className="text-2xl md:text-3xl text-amber-400 font-display animate-pulse">
                 ⏸ PAUSED
               </div>
             )}
             {isEnded && (
-              <div className="text-xl md:text-2xl text-red-400 font-display">
+              <div className="text-2xl md:text-3xl text-red-400 font-display">
                 🏆 TOURNAMENT ENDED
               </div>
             )}
@@ -176,13 +176,13 @@ export default function PublicDisplay() {
         <div className="flex-1 flex flex-col gap-6" style={{ width: '66.666%' }}>
           {/* Timer - Most Important */}
           <div className="card p-8 text-center">
-            <div className="text-xs uppercase tracking-widest text-gray-500 mb-3">
+            <div className="text-sm uppercase tracking-widest text-gray-500 mb-3">
               {stats?.isBreak ? 'Break Time' : `Level ${tournament.current_level}`}
             </div>
-            <div className={`timer-display text-8xl md:text-9xl font-bold ${timerColor} mb-2`}>
+            <div className={`timer-display text-9xl md:text-[12rem] font-bold ${timerColor} mb-2`}>
               {formatTime(localTimeRemaining)}
             </div>
-            <div className="text-gray-500 text-sm">
+            <div className="text-gray-500 text-base">
               {stats?.isBreak 
                 ? `${stats?.breakMinutes} minute break` 
                 : `${stats?.levelMinutes} minute levels`}
@@ -191,18 +191,18 @@ export default function PublicDisplay() {
 
           {/* Current Blinds - High Importance */}
           <div className="card p-6">
-            <div className="text-xs uppercase tracking-widest text-gray-500 mb-4">Current Blinds</div>
+            <div className="text-sm uppercase tracking-widest text-gray-500 mb-4">Current Blinds</div>
             <div className="flex items-baseline gap-4 justify-center">
-              <span className="font-mono text-5xl md:text-6xl font-bold text-gold-400">
+              <span className="font-mono text-6xl md:text-7xl font-bold text-gold-400">
                 {formatNumber(stats?.currentBlind?.sb || 0)}
               </span>
-              <span className="text-3xl text-gray-600">/</span>
-              <span className="font-mono text-5xl md:text-6xl font-bold text-gold-300">
+              <span className="text-4xl text-gray-600">/</span>
+              <span className="font-mono text-6xl md:text-7xl font-bold text-gold-300">
                 {formatNumber(stats?.currentBlind?.bb || 0)}
               </span>
             </div>
             {stats?.currentBlind?.ante > 0 && (
-              <div className="mt-4 text-center text-xl">
+              <div className="mt-4 text-center text-2xl">
                 <span className="text-gray-500">Ante: </span>
                 <span className="font-mono text-emerald-400 font-bold">
                   {formatNumber(stats.currentBlind.ante)}
@@ -211,18 +211,18 @@ export default function PublicDisplay() {
             )}
             {stats?.nextBlind && (
               <div className="mt-6 pt-6 border-t border-white/5">
-                <div className="text-xs uppercase tracking-widest text-gray-600 mb-2">Next Level</div>
+                <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Next Level</div>
                 <div className="flex items-baseline gap-3 justify-center opacity-70">
-                  <span className="font-mono text-3xl md:text-4xl font-bold text-gray-300">
+                  <span className="font-mono text-4xl md:text-5xl font-bold text-gray-300">
                     {formatNumber(stats.nextBlind.sb)}
                   </span>
-                  <span className="text-2xl text-gray-600">/</span>
-                  <span className="font-mono text-3xl md:text-4xl font-bold text-gray-300">
+                  <span className="text-3xl text-gray-600">/</span>
+                  <span className="font-mono text-4xl md:text-5xl font-bold text-gray-300">
                     {formatNumber(stats.nextBlind.bb)}
                   </span>
                 </div>
                 {stats.nextBlind.ante > 0 && (
-                  <div className="mt-3 text-center text-base opacity-70">
+                  <div className="mt-3 text-center text-lg opacity-70">
                     <span className="text-gray-500">Ante: </span>
                     <span className="font-mono text-gray-400 font-bold">
                       {formatNumber(stats.nextBlind.ante)}
@@ -236,28 +236,28 @@ export default function PublicDisplay() {
           {/* Stats Grid - Medium Importance */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="card p-5 text-center">
-              <div className="text-xs uppercase tracking-widest text-gray-600 mb-2">Prize Pool</div>
-              <div className="font-display text-4xl md:text-5xl font-bold text-emerald-400">
+              <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Prize Pool</div>
+              <div className="font-display text-5xl md:text-6xl font-bold text-emerald-400">
                 {formatCurrency(stats?.totalPrizePool || 0)}
               </div>
-              <div className="text-gray-600 text-xs mt-1">
+              <div className="text-gray-600 text-sm mt-1">
                 {formatCurrency(parseFloat(tournament.entry_price))} buy-in
               </div>
             </div>
             <div className="card p-5 text-center">
-              <div className="text-xs uppercase tracking-widest text-gray-600 mb-2">Players</div>
-              <div className="font-display text-4xl md:text-5xl font-bold">
+              <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Players</div>
+              <div className="font-display text-5xl md:text-6xl font-bold">
                 <span className="text-gold-400">{stats?.activeEntries || 0}</span>
                 <span className="text-gray-600 mx-1">/</span>
                 <span className="text-gray-400">{stats?.totalEntries || 0}</span>
               </div>
             </div>
             <div className="card p-5 text-center">
-              <div className="text-xs uppercase tracking-widest text-gray-600 mb-2">Avg Stack</div>
-              <div className="font-mono text-3xl md:text-4xl font-bold text-white">
+              <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Avg Stack</div>
+              <div className="font-mono text-4xl md:text-5xl font-bold text-white">
                 {formatNumber(stats?.averageStack || tournament.starting_stack)}
                 {stats?.currentBlind?.bb > 0 && (
-                  <span className="text-gold-400 text-2xl md:text-3xl ml-2">
+                  <span className="text-gold-400 text-3xl md:text-4xl ml-2">
                     ({Math.round((stats?.averageStack || tournament.starting_stack) / stats.currentBlind.bb)}BB)
                   </span>
                 )}
@@ -275,7 +275,7 @@ export default function PublicDisplay() {
           
           {/* Blind Structure */}
           <div className="card p-6 overflow-hidden flex flex-col flex-1">
-            <h2 className="font-display text-lg md:text-xl font-bold text-white mb-4 pb-3 border-b border-white/10">
+            <h2 className="font-display text-xl md:text-2xl font-bold text-white mb-4 pb-3 border-b border-white/10">
               Blind Structure
             </h2>
             <div className="flex-1 overflow-y-auto">
@@ -301,12 +301,12 @@ export default function PublicDisplay() {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <span className={`font-mono text-sm font-bold ${
+                          <span className={`font-mono text-base font-bold ${
                             isCurrent ? 'text-gold-400' : isPast ? 'text-gray-500' : 'text-gray-400'
                           }`}>
                             {levelNum}
                           </span>
-                          <div className="font-mono text-sm">
+                          <div className="font-mono text-base">
                             <span className={isCurrent ? 'text-gold-400 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
                               {formatNumber(level.sb)}
                             </span>
@@ -317,7 +317,7 @@ export default function PublicDisplay() {
                             {level.ante > 0 && (
                               <>
                                 <span className="text-gray-600 mx-1">|</span>
-                                <span className={`text-xs ${
+                                <span className={`text-sm ${
                                   isCurrent ? 'text-emerald-400' : isPast ? 'text-gray-500' : 'text-gray-400'
                                 }`}>
                                   A: {formatNumber(level.ante)}
@@ -327,7 +327,7 @@ export default function PublicDisplay() {
                           </div>
                         </div>
                         {isCurrent && (
-                          <span className="text-xs px-2 py-0.5 bg-gold-500/30 text-gold-300 rounded font-semibold">
+                          <span className="text-sm px-2 py-0.5 bg-gold-500/30 text-gold-300 rounded font-semibold">
                             Current
                           </span>
                         )}
@@ -343,7 +343,7 @@ export default function PublicDisplay() {
 
       {/* Footer */}
       <footer className="border-t border-white/5 bg-casino-black/50 backdrop-blur-sm">
-        <div className="max-w-[1920px] mx-auto px-8 py-3 flex items-center justify-between text-gray-500 text-xs md:text-sm">
+        <div className="max-w-[1920px] mx-auto px-8 py-3 flex items-center justify-between text-gray-500 text-sm md:text-base">
           <div>♠ ♥ ♦ ♣ Poker Tournament Manager</div>
           <div className="font-mono">
             {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
@@ -356,9 +356,9 @@ export default function PublicDisplay() {
         <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center">
           <div className="text-center animate-float">
             <div className="text-9xl mb-8">☕</div>
-            <h2 className="font-display text-6xl md:text-8xl gold-text mb-4">BREAK TIME</h2>
-            <p className="text-3xl text-gray-400">{stats.breakMinutes} minute break</p>
-            <div className={`timer-display text-8xl font-bold mt-8 ${timerColor}`}>
+            <h2 className="font-display text-7xl md:text-9xl gold-text mb-4">BREAK TIME</h2>
+            <p className="text-4xl text-gray-400">{stats.breakMinutes} minute break</p>
+            <div className={`timer-display text-9xl font-bold mt-8 ${timerColor}`}>
               {formatTime(localTimeRemaining)}
             </div>
           </div>

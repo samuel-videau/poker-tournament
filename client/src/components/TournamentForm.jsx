@@ -282,7 +282,7 @@ export default function TournamentForm({ onCreated, onCancel }) {
               Percentage of players who will receive prizes
               {formData.type === 'ko' && (
                 <span className="block mt-1 text-amber-400">
-                  Note: 50% of prize pool goes to ICM, 50% to bounties
+                  Note: ICM prize pool = Total prize pool - Bounties paid. Winner's unclaimed bounty goes to ICM.
                 </span>
               )}
             </p>

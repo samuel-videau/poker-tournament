@@ -805,8 +805,9 @@ app.get('/api/tournaments/:id', async (req, res) => {
         const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, prizePoolAvailable, entryPrice);
       } else if (tournament.type === 'ko') {
-        // For KO tournaments: 50% of prize pool goes to ICM, 50% to bounties
-        const icmPrizePool = totalPrizePool * 0.5;
+        // For KO tournaments: ICM prize pool = total prize pool - bounties actually paid
+        // The winner's bounty (never collected) goes to the ICM pool
+        const icmPrizePool = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, icmPrizePool, entryPrice);
       } else {
         // For Mystery KO and other types: winner takes all (prize pool minus bounties)
