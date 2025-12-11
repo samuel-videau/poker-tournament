@@ -94,9 +94,7 @@ export default function Leaderboard({ leaderboard, tournamentStatus }) {
                     <>
                       <div className="text-xs text-gray-500">Prize</div>
                       <div className="text-sm font-bold text-gray-500">
-                        {player.position === 1 && !player.is_eliminated 
-                          ? formatCurrency(prizePool - totalBountiesPaid)
-                          : '—'}
+                        —
                       </div>
                     </>
                   )}
@@ -107,14 +105,23 @@ export default function Leaderboard({ leaderboard, tournamentStatus }) {
         ))}
       </div>
       
-      {isEnded && rankings[0]?.prize > 0 && (
+      {isEnded && rankings.some(p => p.prize > 0) && (
         <div className="mt-4 pt-4 border-t border-white/10">
           <div className="text-center">
-            <div className="text-sm text-gray-400 mb-1">Winner Prize</div>
-            <div className="text-2xl font-bold text-gold-400">
-              {formatCurrency(rankings[0].prize)}
+            <div className="text-sm text-gray-400 mb-2">Payout Summary</div>
+            <div className="space-y-1">
+              {rankings.filter(p => p.prize > 0).map((player) => (
+                <div key={player.entry_id} className="flex items-center justify-center gap-2">
+                  <span className="text-sm text-gray-500">
+                    {getPositionIcon(player.position)} {player.player_name}:
+                  </span>
+                  <span className="text-lg font-bold text-gold-400">
+                    {formatCurrency(player.prize)}
+                  </span>
+                </div>
+              ))}
             </div>
-            <div className="text-xs text-gray-500 mt-1">
+            <div className="text-xs text-gray-500 mt-2">
               Prize Pool ({formatCurrency(prizePool)}) - Bounties ({formatCurrency(totalBountiesPaid)})
             </div>
           </div>
@@ -123,6 +130,9 @@ export default function Leaderboard({ leaderboard, tournamentStatus }) {
     </div>
   );
 }
+
+
+
 
 
 

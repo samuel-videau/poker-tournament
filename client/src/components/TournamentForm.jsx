@@ -34,6 +34,22 @@ const BLIND_INCREASES = [
   { value: 2.0, label: 'Ultra', desc: '2.0x' }
 ];
 
+const ICM_PAYOUT_PERCENTAGES = [
+  { value: 10, label: 'Top 10%', desc: '10% of players' },
+  { value: 15, label: 'Top 15%', desc: '15% of players' },
+  { value: 20, label: 'Top 20%', desc: '20% of players' },
+  { value: 25, label: 'Top 25%', desc: '25% of players' },
+  { value: 30, label: 'Top 30%', desc: '30% of players' },
+  { value: 50, label: 'Top 50%', desc: '50% of players' }
+];
+
+const ICM_PAYOUT_STRUCTURES = [
+  { value: 'standard', label: 'Standard', desc: '50/30/20 split' },
+  { value: 'steep', label: 'Steep', desc: '60/25/15 split' },
+  { value: 'flat', label: 'Flat', desc: 'Equal distribution' },
+  { value: 'winner_takes_all', label: 'Winner Takes All', desc: 'All - 1 buy-in to 1st, 1 buy-in to 2nd' }
+];
+
 export default function TournamentForm({ onCreated, onCancel }) {
   const [formData, setFormData] = useState({
     name: '',
@@ -44,7 +60,9 @@ export default function TournamentForm({ onCreated, onCancel }) {
     entry_price: 20,
     starting_blind_depth: 50,
     blind_increase_rate: 1.25,
-    bba_start_level: 6
+    bba_start_level: 6,
+    icm_payout_percentage: 20,
+    icm_payout_structure: 'standard'
   });
   
   const [preview, setPreview] = useState(null);
@@ -233,6 +251,72 @@ export default function TournamentForm({ onCreated, onCancel }) {
           BBA equals the big blind. The big blind player pays both BB and ante.
         </p>
       </div>
+
+      {/* ICM Distribution Settings - show for ICM and KO tournaments */}
+      {(formData.type === 'icm' || formData.type === 'ko') && (
+        <>
+          {/* ICM Payout Percentage */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Payout Percentage
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {ICM_PAYOUT_PERCENTAGES.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => updateField('icm_payout_percentage', option.value)}
+                  className={`
+                    p-3 rounded-lg border text-center transition-all
+                    ${formData.icm_payout_percentage === option.value 
+                      ? 'border-gold-500 bg-gold-500/10 text-gold-400' 
+                      : 'border-white/10 hover:border-white/30 text-gray-300'}
+                  `}
+                >
+                  <div className="font-semibold text-sm">{option.label}</div>
+                  <div className="text-xs text-gray-500 mt-1">{option.desc}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Percentage of players who will receive prizes
+              {formData.type === 'ko' && (
+                <span className="block mt-1 text-amber-400">
+                  Note: 50% of prize pool goes to ICM, 50% to bounties
+                </span>
+              )}
+            </p>
+          </div>
+
+          {/* ICM Payout Structure */}
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Payout Structure
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {ICM_PAYOUT_STRUCTURES.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => updateField('icm_payout_structure', option.value)}
+                  className={`
+                    p-3 rounded-lg border text-center transition-all
+                    ${formData.icm_payout_structure === option.value 
+                      ? 'border-gold-500 bg-gold-500/10 text-gold-400' 
+                      : 'border-white/10 hover:border-white/30 text-gray-300'}
+                  `}
+                >
+                  <div className="font-semibold text-sm">{option.label}</div>
+                  <div className="text-xs text-gray-500 mt-1">{option.desc}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              How prizes are distributed among winners
+            </p>
+          </div>
+        </>
+      )}
 
       {/* Number inputs row */}
       <div className="grid grid-cols-3 gap-4">
