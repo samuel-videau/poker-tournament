@@ -162,3 +162,4 @@ export async function verifyTournamentOwner(req, res, next) {
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
+

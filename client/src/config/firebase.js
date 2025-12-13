@@ -26,3 +26,4 @@ export const facebookProvider = new FacebookAuthProvider();
 export const appleProvider = new OAuthProvider('apple.com');
 
 export default app;
+

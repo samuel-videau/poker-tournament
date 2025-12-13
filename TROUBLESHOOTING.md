@@ -89,3 +89,4 @@ FIREBASE_SERVICE_ACCOUNT_PATH=/path/to/your/firebase-service-account.json
 2. Verify the service account has the correct permissions
 3. Make sure you're using the correct Firebase project (same one as your frontend config)
 4. Check server console for detailed error messages
+
