@@ -45,3 +45,4 @@ results.push(test('Case 4: 5000 stack, 20 players, 0 reentries', 5000, 20, 0));
 console.log(`\n${'='.repeat(60)}`);
 console.log(`SUMMARY: ${results.filter(r => r).length}/${results.length} tests passed`);
 console.log(`${'='.repeat(60)}\n`);
+
