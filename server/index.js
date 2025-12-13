@@ -3,6 +3,7 @@ import cors from 'cors';
 import pg from 'pg';
 import { config } from 'dotenv';
 import { calculateChipDistribution } from './utils/chipDistribution.js';
+import { calculateBountyAmount, getBountyAsInteger } from './utils/bountyCalculation.js';
 
 config();
 
@@ -789,10 +790,9 @@ app.get('/api/tournaments/:id', async (req, res) => {
     
     // Calculate leaderboard
     // Calculate total bounties paid (sum of all bounty amounts from knockouts)
-    // Each bounty is ceil(buy-in / 2), stored as integer, so sum them directly
+    // Use utility function to ensure integers
     const totalBountiesPaid = knockoutsResult.rows.reduce((sum, ko) => {
-      // Ensure we're working with integers - each bounty should be ceil(entry_price / 2)
-      const bounty = Math.round(parseFloat(ko.bounty_amount || 0));
+      const bounty = getBountyAsInteger(ko.bounty_amount);
       return sum + bounty;
     }, 0);
     
@@ -806,14 +806,12 @@ app.get('/api/tournaments/:id', async (req, res) => {
     
     // Calculate actual bounties collected per player from knockouts table
     // This ensures accuracy and avoids rounding issues from stored bounty_collected field
-    // Each bounty is ceil(buy-in / 2), stored as integer, so sum them directly
+    // Use utility function to ensure integers
     const bountiesByEntry = {};
     knockoutsResult.rows.forEach(ko => {
       const eliminatorId = ko.eliminator_entry_id;
       if (eliminatorId) {
-        // Each bounty_amount should already be an integer (ceil(buy-in / 2))
-        // Round to ensure integer in case of any floating point issues
-        const bounty = Math.round(parseFloat(ko.bounty_amount || 0));
+        const bounty = getBountyAsInteger(ko.bounty_amount);
         bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + bounty;
       }
     });
@@ -856,7 +854,7 @@ app.get('/api/tournaments/:id', async (req, res) => {
       
       // Use calculated bounty from knockouts table, fallback to stored value if needed
       const calculatedBounty = bountiesByEntry[entry.id] || 0;
-      const bountyCollected = calculatedBounty > 0 ? calculatedBounty : Math.round(parseFloat(entry.bounty_collected || 0));
+      const bountyCollected = calculatedBounty > 0 ? calculatedBounty : getBountyAsInteger(entry.bounty_collected);
       
       return {
         position,
@@ -1198,23 +1196,10 @@ app.post('/api/tournaments/:id/knockouts', async (req, res) => {
     );
     
     const tournament = tournamentResult.rows[0];
-    let bountyAmount = 0;
     
-    if (tournament.type === 'ko' || tournament.type === 'mystery_ko') {
-      // Bounty = ceil(buy-in / 2) - round each bounty individually to avoid rounding issues
-      const entryPrice = parseFloat(tournament.entry_price);
-      const baseBounty = Math.ceil(entryPrice / 2);
-      
-      if (tournament.type === 'mystery_ko') {
-        // Random bounty multiplier for mystery KO
-        const multipliers = [0.5, 1, 1, 1, 1, 2, 2, 3, 5, 10];
-        const randomMultiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
-        bountyAmount = Math.ceil(baseBounty * randomMultiplier);
-      } else {
-        // For KO: each bounty is ceil(buy-in / 2), stored as integer
-        bountyAmount = baseBounty;
-      }
-    }
+    // Calculate bounty using utility function
+    const entryPrice = parseFloat(tournament.entry_price);
+    const bountyAmount = calculateBountyAmount(entryPrice, tournament.type);
     
     // Mark entry as eliminated
     await pool.query(
@@ -1223,29 +1208,260 @@ app.post('/api/tournaments/:id/knockouts', async (req, res) => {
     );
     
     // Update bounty collected for eliminator
-    // Ensure bounty is stored as integer (each bounty = ceil(buy-in / 2))
+    // Bounty is already an integer from calculateBountyAmount
     if (bountyAmount > 0) {
-      const bountyAsInt = Math.round(bountyAmount); // Ensure integer
       await pool.query(
         'UPDATE entries SET bounty_collected = bounty_collected + $1 WHERE id = $2',
-        [bountyAsInt, eliminator_entry_id]
+        [bountyAmount, eliminator_entry_id]
       );
     }
     
     // Record knockout
-    // Store bounty as integer to avoid rounding issues
-    const bountyAsInt = Math.round(bountyAmount); // Ensure integer
+    // Bounty is already an integer from calculateBountyAmount
     const result = await pool.query(
       `INSERT INTO knockouts (tournament_id, eliminator_entry_id, eliminated_entry_id, bounty_amount)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [id, eliminator_entry_id, eliminated_entry_id, bountyAsInt]
+      [id, eliminator_entry_id, eliminated_entry_id, bountyAmount]
     );
     
-    res.json({ ...result.rows[0], bountyAmount });
+    res.json({ ...result.rows[0], bountyAmount: bountyAmount });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get tournament summary (text export)
+app.get('/api/tournaments/:id/summary', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    const tournament = tournamentResult.rows[0];
+    
+    // Get entries
+    const entriesResult = await pool.query(
+      'SELECT * FROM entries WHERE tournament_id = $1 ORDER BY created_at',
+      [id]
+    );
+    
+    // Get knockouts with player names
+    const knockoutsResult = await pool.query(`
+      SELECT k.*, 
+             e1.player_name as eliminator_name,
+             e2.player_name as eliminated_name
+      FROM knockouts k
+      LEFT JOIN entries e1 ON k.eliminator_entry_id = e1.id
+      LEFT JOIN entries e2 ON k.eliminated_entry_id = e2.id
+      WHERE k.tournament_id = $1
+      ORDER BY k.created_at ASC
+    `, [id]);
+    
+    const entries = entriesResult.rows;
+    const knockouts = knockoutsResult.rows;
+    const totalEntries = entries.length;
+    const totalPrizePool = totalEntries * parseFloat(tournament.entry_price);
+    
+    // Calculate bounties by entry using utility function
+    const bountiesByEntry = {};
+    knockouts.forEach(ko => {
+      const eliminatorId = ko.eliminator_entry_id;
+      if (eliminatorId) {
+        const bounty = getBountyAsInteger(ko.bounty_amount);
+        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + bounty;
+      }
+    });
+    
+    const totalBountiesPaid = knockouts.reduce((sum, ko) => {
+      return sum + getBountyAsInteger(ko.bounty_amount);
+    }, 0);
+    
+    // Calculate leaderboard
+    const activePlayers = entries.filter(e => !e.is_eliminated)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const eliminatedPlayers = entries.filter(e => e.is_eliminated)
+      .sort((a, b) => new Date(b.eliminated_at || 0) - new Date(a.eliminated_at || 0));
+    
+    // Calculate ICM payouts if tournament is ended
+    let icmPayouts = [];
+    if (tournament.status === 'ended') {
+      const payoutPercentage = tournament.icm_payout_percentage || 20;
+      const payoutStructure = tournament.icm_payout_structure || 'standard';
+      const entryPrice = parseFloat(tournament.entry_price || 0);
+      
+      if (tournament.type === 'icm') {
+        const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
+        icmPayouts = calculateICMPayouts(totalEntries, payoutPercentage, payoutStructure, prizePoolAvailable, entryPrice);
+      } else if (tournament.type === 'ko') {
+        const icmPrizePool = Math.max(0, totalPrizePool - totalBountiesPaid);
+        icmPayouts = calculateICMPayouts(totalEntries, payoutPercentage, payoutStructure, icmPrizePool, entryPrice);
+      } else {
+        const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
+        icmPayouts = calculateICMPayouts(totalEntries, 10, 'winner_takes_all', prizePoolAvailable, entryPrice);
+      }
+    }
+    
+    const leaderboard = [...activePlayers, ...eliminatedPlayers].map((entry, index) => {
+      const position = index + 1;
+      const prize = tournament.status === 'ended' && icmPayouts.length > 0 ? (icmPayouts[position - 1] || 0) : 0;
+      const bountyCollected = bountiesByEntry[entry.id] || 0;
+      
+      return {
+        position,
+        player_name: entry.player_name,
+        entry_number: entry.entry_number,
+        is_eliminated: entry.is_eliminated,
+        eliminated_at: entry.eliminated_at,
+        bounty_collected: bountyCollected,
+        prize: prize
+      };
+    });
+    
+    // Format dates
+    const formatDate = (date) => {
+      if (!date) return 'N/A';
+      return new Date(date).toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
+    
+    // Build summary text
+    let summary = '';
+    summary += '='.repeat(60) + '\n';
+    summary += `TOURNAMENT SUMMARY\n`;
+    summary += '='.repeat(60) + '\n\n';
+    
+    // Tournament Info
+    summary += `Tournament: ${tournament.name}\n`;
+    summary += `Type: ${tournament.type.toUpperCase()}\n`;
+    summary += `Speed: ${tournament.speed.charAt(0).toUpperCase() + tournament.speed.slice(1)}\n`;
+    summary += `Buy-in: $${parseFloat(tournament.entry_price)}\n`;
+    summary += `Starting Stack: ${tournament.starting_stack.toLocaleString()}\n`;
+    summary += `Max Players: ${tournament.max_players}\n`;
+    summary += `Status: ${tournament.status.toUpperCase()}\n\n`;
+    
+    // Timeline
+    summary += '-'.repeat(60) + '\n';
+    summary += 'TIMELINE\n';
+    summary += '-'.repeat(60) + '\n';
+    summary += `Created: ${formatDate(tournament.created_at)}\n`;
+    if (tournament.status === 'ended') {
+      // Find when tournament ended (last elimination time or current time)
+      const lastElimination = eliminatedPlayers.length > 0 
+        ? eliminatedPlayers[0].eliminated_at 
+        : null;
+      summary += `Ended: ${formatDate(lastElimination || tournament.updated_at)}\n`;
+    }
+    summary += `Total Entries: ${totalEntries}\n`;
+    summary += `Prize Pool: $${totalPrizePool.toLocaleString()}\n`;
+    if (totalBountiesPaid > 0) {
+      summary += `Total Bounties Paid: $${totalBountiesPaid.toLocaleString()}\n`;
+    }
+    summary += '\n';
+    
+    // Knockout History
+    if (knockouts.length > 0) {
+      summary += '-'.repeat(60) + '\n';
+      summary += 'KNOCKOUT HISTORY\n';
+      summary += '-'.repeat(60) + '\n';
+      knockouts.forEach((ko, index) => {
+        const time = formatDate(ko.created_at);
+        const bounty = getBountyAsInteger(ko.bounty_amount);
+        summary += `${index + 1}. ${time} - ${ko.eliminator_name} eliminated ${ko.eliminated_name}`;
+        if (bounty > 0) {
+          summary += ` (+$${bounty.toLocaleString()} bounty)`;
+        }
+        summary += '\n';
+      });
+      summary += '\n';
+    }
+    
+    // Leaderboard
+    summary += '-'.repeat(60) + '\n';
+    summary += 'FINAL LEADERBOARD\n';
+    summary += '-'.repeat(60) + '\n';
+    summary += 'Pos | Player Name';
+    if (tournament.type === 'ko' || tournament.type === 'mystery_ko') {
+      summary += ' | Bounties';
+    }
+    if (tournament.status === 'ended') {
+      summary += ' | Prize';
+    }
+    summary += '\n';
+    summary += '-'.repeat(60) + '\n';
+    
+    leaderboard.forEach(player => {
+      const pos = player.position.toString().padStart(3);
+      const name = player.player_name.padEnd(20);
+      let line = `${pos} | ${name}`;
+      
+      if (tournament.type === 'ko' || tournament.type === 'mystery_ko') {
+        const bounties = player.bounty_collected > 0 ? `$${player.bounty_collected.toLocaleString()}` : '$0';
+        line += ` | ${bounties.padEnd(10)}`;
+      }
+      
+      if (tournament.status === 'ended') {
+        const prize = player.prize > 0 ? `$${player.prize.toLocaleString()}` : '$0';
+        line += ` | ${prize}`;
+      }
+      
+      summary += line + '\n';
+    });
+    summary += '\n';
+    
+    // Payout Summary
+    if (tournament.status === 'ended') {
+      const winners = leaderboard.filter(p => p.prize > 0);
+      if (winners.length > 0) {
+        summary += '-'.repeat(60) + '\n';
+        summary += 'PAYOUT SUMMARY\n';
+        summary += '-'.repeat(60) + '\n';
+        winners.forEach(player => {
+          const icon = player.position === 1 ? '🥇' : player.position === 2 ? '🥈' : player.position === 3 ? '🥉' : `${player.position}.`;
+          summary += `${icon} ${player.player_name}: $${player.prize.toLocaleString()}\n`;
+        });
+        summary += '\n';
+      }
+    }
+    
+    // Bounty Summary (for KO tournaments)
+    if ((tournament.type === 'ko' || tournament.type === 'mystery_ko') && Object.keys(bountiesByEntry).length > 0) {
+      summary += '-'.repeat(60) + '\n';
+      summary += 'BOUNTY SUMMARY\n';
+      summary += '-'.repeat(60) + '\n';
+      const bountyLeaders = leaderboard
+        .filter(p => p.bounty_collected > 0)
+        .sort((a, b) => b.bounty_collected - a.bounty_collected);
+      
+      bountyLeaders.forEach(player => {
+        summary += `${player.player_name}: $${player.bounty_collected.toLocaleString()}\n`;
+      });
+      summary += '\n';
+    }
+    
+    summary += '='.repeat(60) + '\n';
+    summary += `Generated: ${formatDate(new Date())}\n`;
+    summary += '='.repeat(60) + '\n';
+    
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="tournament-${tournament.name.replace(/[^a-z0-9]/gi, '_')}-summary.txt"`);
+    res.send(summary);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate summary' });
   }
 });
 

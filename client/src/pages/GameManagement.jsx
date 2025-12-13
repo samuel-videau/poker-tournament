@@ -9,7 +9,8 @@ import {
   recordKnockout,
   formatCurrency, 
   formatNumber, 
-  formatTime 
+  formatTime,
+  exportTournamentSummary
 } from '../utils/api';
 import BlindLevel from '../components/BlindLevel';
 import ChipStack from '../components/ChipStack';
@@ -359,6 +360,21 @@ export default function GameManagement() {
                     className="btn btn-danger ml-auto"
                   >
                     ⏹ End Tournament
+                  </button>
+                )}
+                
+                {tournament.status === 'ended' && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await exportTournamentSummary(id);
+                      } catch (err) {
+                        alert('Failed to export summary: ' + err.message);
+                      }
+                    }}
+                    className="btn btn-outline ml-auto"
+                  >
+                    📄 Export Summary
                   </button>
                 )}
               </div>

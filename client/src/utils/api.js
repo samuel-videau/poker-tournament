@@ -119,3 +119,17 @@ export function formatDateTime(date) {
     minute: '2-digit'
   });
 }
+
+export async function exportTournamentSummary(id) {
+  const res = await fetch(`${API_BASE}/tournaments/${id}/summary`);
+  if (!res.ok) throw new Error('Failed to export summary');
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tournament-summary-${id}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
