@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchTournament } from '../utils/api';
+import { fetchTournament, fetchTournamentPublic } from '../utils/api';
 
-export function useTournament(id, pollingInterval = 1000) {
+export function useTournament(id, pollingInterval = 1000, token = null, isPublic = false) {
   const [tournament, setTournament] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -10,7 +10,9 @@ export function useTournament(id, pollingInterval = 1000) {
     if (!id) return;
     
     try {
-      const data = await fetchTournament(id);
+      const data = isPublic 
+        ? await fetchTournamentPublic(id)
+        : await fetchTournament(id, token);
       setTournament(data);
       setError(null);
     } catch (err) {
@@ -18,7 +20,7 @@ export function useTournament(id, pollingInterval = 1000) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, token, isPublic]);
 
   useEffect(() => {
     load();

@@ -6,7 +6,7 @@ import Leaderboard from '../components/Leaderboard';
 
 export default function PublicDisplay() {
   const { id } = useParams();
-  const { tournament, loading, error, refresh } = useTournament(id, 500); // Poll every 500ms for smoother updates
+  const { tournament, loading, error, refresh } = useTournament(id, 500, null, true); // Public endpoint, no auth
   const audioRef = useRef(null);
   const [playedLevelEnd, setPlayedLevelEnd] = useState(false);
 

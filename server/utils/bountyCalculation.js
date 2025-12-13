@@ -38,3 +38,4 @@ export function calculateBountyAmount(entryPrice, tournamentType, multiplier = n
 export function getBountyAsInteger(bountyAmount) {
   return Math.round(parseFloat(bountyAmount || 0));
 }
+

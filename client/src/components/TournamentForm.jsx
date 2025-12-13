@@ -50,7 +50,7 @@ const ICM_PAYOUT_STRUCTURES = [
   { value: 'winner_takes_all', label: 'Winner Takes All', desc: 'All - 1 buy-in to 1st, 1 buy-in to 2nd' }
 ];
 
-export default function TournamentForm({ onCreated, onCancel }) {
+export default function TournamentForm({ onCreated, onCancel, token }) {
   const [formData, setFormData] = useState({
     name: '',
     speed: 'normal',
@@ -97,7 +97,7 @@ export default function TournamentForm({ onCreated, onCancel }) {
     setError(null);
     
     try {
-      const tournament = await createTournament(formData);
+      const tournament = await createTournament(formData, token);
       onCreated(tournament);
     } catch (err) {
       setError(err.message);

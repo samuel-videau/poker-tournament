@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { useTournament } from '../hooks/useTournament';
 import { 
   updateTournamentStatus, 
@@ -25,7 +26,8 @@ const STATUS_COLORS = {
 
 export default function GameManagement() {
   const { id } = useParams();
-  const { tournament, loading, error, refresh } = useTournament(id, 1000);
+  const { user, token, signOut } = useAuth();
+  const { tournament, loading, error, refresh } = useTournament(id, 1000, token);
   
   const [newPlayerName, setNewPlayerName] = useState('');
   const [showKOModal, setShowKOModal] = useState(false);
@@ -52,27 +54,27 @@ export default function GameManagement() {
   const handleNextLevel = useCallback(async () => {
     setActionLoading(true);
     try {
-      await advanceLevel(id);
+      await advanceLevel(id, token);
       refresh();
     } catch (err) {
       setActionError(err.message);
     } finally {
       setActionLoading(false);
     }
-  }, [id, refresh]);
+  }, [id, token, refresh]);
 
   // Define handleSkipBreak for skipping breaks
   const handleSkipBreak = useCallback(async () => {
     setActionLoading(true);
     try {
-      await skipBreak(id);
+      await skipBreak(id, token);
       refresh();
     } catch (err) {
       setActionError(err.message);
     } finally {
       setActionLoading(false);
     }
-  }, [id, refresh]);
+  }, [id, token, refresh]);
   
   // Initialize timer when level changes, status changes, or break state changes
   useEffect(() => {
@@ -148,7 +150,7 @@ export default function GameManagement() {
   const handleStatusChange = async (status) => {
     setActionLoading(true);
     try {
-      await updateTournamentStatus(id, status);
+      await updateTournamentStatus(id, status, token);
       refresh();
     } catch (err) {
       setActionError(err.message);
@@ -163,7 +165,7 @@ export default function GameManagement() {
     
     setActionLoading(true);
     try {
-      await addEntry(id, newPlayerName.trim());
+      await addEntry(id, newPlayerName.trim(), token);
       setNewPlayerName('');
       refresh();
     } catch (err) {
@@ -178,7 +180,7 @@ export default function GameManagement() {
     
     setActionLoading(true);
     try {
-      const result = await recordKnockout(id, koEliminator, koEliminated);
+      const result = await recordKnockout(id, koEliminator, koEliminated, token);
       setShowKOModal(false);
       setKoEliminator('');
       setKoEliminated('');
@@ -241,13 +243,27 @@ export default function GameManagement() {
               </div>
             </div>
             
-            <Link
-              to={`/display/${id}`}
-              target="_blank"
-              className="btn btn-outline"
-            >
-              Open Public Display ↗
-            </Link>
+            <div className="flex items-center gap-3">
+              {user && (
+                <div className="flex items-center gap-2">
+                  {user.photoURL && (
+                    <img 
+                      src={user.photoURL} 
+                      alt={user.displayName || 'User'} 
+                      className="w-6 h-6 rounded-full"
+                    />
+                  )}
+                  <span className="text-gray-400 text-sm">{user.displayName || user.email}</span>
+                </div>
+              )}
+              <Link
+                to={`/display/${id}`}
+                target="_blank"
+                className="btn btn-outline"
+              >
+                Open Public Display ↗
+              </Link>
+            </div>
           </div>
         </div>
       </header>
@@ -367,7 +383,7 @@ export default function GameManagement() {
                   <button
                     onClick={async () => {
                       try {
-                        await exportTournamentSummary(id);
+                        await exportTournamentSummary(id, token);
                       } catch (err) {
                         alert('Failed to export summary: ' + err.message);
                       }

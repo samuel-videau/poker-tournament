@@ -1,32 +1,70 @@
 const API_BASE = '/api';
 
-export async function fetchTournaments() {
-  const res = await fetch(`${API_BASE}/tournaments`);
-  if (!res.ok) throw new Error('Failed to fetch tournaments');
+// Helper function to get auth headers
+function getAuthHeaders(token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+export async function fetchTournaments(token) {
+  const res = await fetch(`${API_BASE}/tournaments`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    throw new Error('Failed to fetch tournaments');
+  }
   return res.json();
 }
 
-export async function fetchTournament(id) {
-  const res = await fetch(`${API_BASE}/tournaments/${id}`);
-  if (!res.ok) throw new Error('Failed to fetch tournament');
+export async function fetchTournament(id, token) {
+  const res = await fetch(`${API_BASE}/tournaments/${id}`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to access this tournament.');
+    throw new Error('Failed to fetch tournament');
+  }
   return res.json();
 }
 
-export async function createTournament(data) {
+// Public endpoint for viewing tournaments (no auth required)
+export async function fetchTournamentPublic(id) {
+  const res = await fetch(`${API_BASE}/tournaments/${id}/public`);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('Tournament not found');
+    throw new Error('Failed to fetch tournament');
+  }
+  return res.json();
+}
+
+export async function createTournament(data, token) {
   const res = await fetch(`${API_BASE}/tournaments`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(token),
     body: JSON.stringify(data)
   });
-  if (!res.ok) throw new Error('Failed to create tournament');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    throw new Error('Failed to create tournament');
+  }
   return res.json();
 }
 
-export async function deleteTournament(id) {
+export async function deleteTournament(id, token) {
   const res = await fetch(`${API_BASE}/tournaments/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: getAuthHeaders(token)
   });
-  if (!res.ok) throw new Error('Failed to delete tournament');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to delete this tournament.');
+    throw new Error('Failed to delete tournament');
+  }
   return res.json();
 }
 
@@ -40,55 +78,75 @@ export async function previewTournament(data) {
   return res.json();
 }
 
-export async function updateTournamentStatus(id, status) {
+export async function updateTournamentStatus(id, status, token) {
   const res = await fetch(`${API_BASE}/tournaments/${id}/status`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(token),
     body: JSON.stringify({ status })
   });
-  if (!res.ok) throw new Error('Failed to update status');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to update this tournament.');
+    throw new Error('Failed to update status');
+  }
   return res.json();
 }
 
-export async function advanceLevel(id) {
+export async function advanceLevel(id, token) {
   const res = await fetch(`${API_BASE}/tournaments/${id}/next-level`, {
-    method: 'PATCH'
+    method: 'PATCH',
+    headers: getAuthHeaders(token)
   });
-  if (!res.ok) throw new Error('Failed to advance level');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to modify this tournament.');
+    throw new Error('Failed to advance level');
+  }
   return res.json();
 }
 
-export async function skipBreak(id) {
+export async function skipBreak(id, token) {
   const res = await fetch(`${API_BASE}/tournaments/${id}/skip-break`, {
-    method: 'PATCH'
+    method: 'PATCH',
+    headers: getAuthHeaders(token)
   });
-  if (!res.ok) throw new Error('Failed to skip break');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to modify this tournament.');
+    throw new Error('Failed to skip break');
+  }
   return res.json();
 }
 
-export async function addEntry(tournamentId, playerName) {
+export async function addEntry(tournamentId, playerName, token) {
   const res = await fetch(`${API_BASE}/tournaments/${tournamentId}/entries`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(token),
     body: JSON.stringify({ player_name: playerName })
   });
   if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to modify this tournament.');
     const error = await res.json();
     throw new Error(error.error || 'Failed to add entry');
   }
   return res.json();
 }
 
-export async function recordKnockout(tournamentId, eliminatorId, eliminatedId) {
+export async function recordKnockout(tournamentId, eliminatorId, eliminatedId, token) {
   const res = await fetch(`${API_BASE}/tournaments/${tournamentId}/knockouts`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(token),
     body: JSON.stringify({
       eliminator_entry_id: eliminatorId,
       eliminated_entry_id: eliminatedId
     })
   });
-  if (!res.ok) throw new Error('Failed to record knockout');
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to modify this tournament.');
+    throw new Error('Failed to record knockout');
+  }
   return res.json();
 }
 
@@ -120,9 +178,15 @@ export function formatDateTime(date) {
   });
 }
 
-export async function exportTournamentSummary(id) {
-  const res = await fetch(`${API_BASE}/tournaments/${id}/summary`);
-  if (!res.ok) throw new Error('Failed to export summary');
+export async function exportTournamentSummary(id, token) {
+  const res = await fetch(`${API_BASE}/tournaments/${id}/summary`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error('Unauthorized. Please log in.');
+    if (res.status === 403) throw new Error('You do not have permission to export this tournament.');
+    throw new Error('Failed to export summary');
+  }
   const blob = await res.blob();
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');

@@ -2,10 +2,17 @@ import express from 'express';
 import cors from 'cors';
 import pg from 'pg';
 import { config } from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { calculateChipDistribution } from './utils/chipDistribution.js';
 import { calculateBountyAmount, getBountyAsInteger } from './utils/bountyCalculation.js';
+import { verifyToken, verifyTournamentOwner } from './middleware/auth.js';
 
-config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load .env file from server directory
+config({ path: join(__dirname, '.env') });
 
 const { Pool } = pg;
 
@@ -17,6 +24,9 @@ app.use(express.json());
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/poker_tournament'
 });
+
+// Make pool available to middleware
+app.set('db', pool);
 
 // Import chip set configuration (also exported from chipDistribution.js)
 import { CHIP_SET } from './utils/chipDistribution.js';
@@ -523,6 +533,13 @@ async function initDB() {
         ) THEN
           ALTER TABLE tournaments ADD COLUMN icm_payout_structure VARCHAR(20) NOT NULL DEFAULT 'standard';
         END IF;
+        
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'tournaments' AND column_name = 'owner'
+        ) THEN
+          ALTER TABLE tournaments ADD COLUMN owner VARCHAR(255);
+        END IF;
       END \$\$;
       
       CREATE TABLE IF NOT EXISTS entries (
@@ -553,11 +570,13 @@ async function initDB() {
 
 // API Routes
 
-// Get all tournaments
-app.get('/api/tournaments', async (req, res) => {
+// Get all tournaments (protected - only returns user's tournaments)
+app.get('/api/tournaments', verifyToken, async (req, res) => {
   try {
+    const userId = req.user.uid;
     const result = await pool.query(
-      'SELECT * FROM tournaments ORDER BY created_at DESC'
+      'SELECT * FROM tournaments WHERE owner = $1 ORDER BY created_at DESC',
+      [userId]
     );
     res.json(result.rows);
   } catch (err) {
@@ -566,8 +585,305 @@ app.get('/api/tournaments', async (req, res) => {
   }
 });
 
-// Get single tournament with full details
-app.get('/api/tournaments/:id', async (req, res) => {
+// Public endpoint for viewing tournament (read-only, no auth required)
+app.get('/api/tournaments/:id/public', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const tournamentResult = await pool.query(
+      'SELECT * FROM tournaments WHERE id = $1',
+      [id]
+    );
+    
+    if (tournamentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tournament not found' });
+    }
+    
+    let tournament = tournamentResult.rows[0];
+    
+    // Get entries
+    const entriesResult = await pool.query(
+      'SELECT * FROM entries WHERE tournament_id = $1 ORDER BY created_at',
+      [id]
+    );
+    
+    // Get knockouts
+    const knockoutsResult = await pool.query(`
+      SELECT k.*, 
+             e1.player_name as eliminator_name,
+             e2.player_name as eliminated_name
+      FROM knockouts k
+      LEFT JOIN entries e1 ON k.eliminator_entry_id = e1.id
+      LEFT JOIN entries e2 ON k.eliminated_entry_id = e2.id
+      WHERE k.tournament_id = $1
+      ORDER BY k.created_at DESC
+    `, [id]);
+    
+    // Calculate stats
+    const entries = entriesResult.rows;
+    const activeEntries = entries.filter(e => !e.is_eliminated).length;
+    const totalEntries = entries.length;
+    const totalPrizePool = totalEntries * parseFloat(tournament.entry_price);
+    const averageStack = activeEntries > 0 
+      ? Math.floor((totalEntries * tournament.starting_stack) / activeEntries)
+      : tournament.starting_stack;
+    
+    // Get blind structure (generated dynamically based on starting stack, blind depth, increase rate, and BBA start level)
+    const startingBlindDepth = tournament.starting_blind_depth || 50;
+    const blindIncreaseRate = tournament.blind_increase_rate || 1.25;
+    const bbaStartLevel = tournament.bba_start_level || 6;
+    const structure = generateBlindStructure(tournament.starting_stack, tournament.speed, startingBlindDepth, blindIncreaseRate, bbaStartLevel);
+    let currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
+    let nextBlind = structure.levels[tournament.current_level] || null;
+    
+    // Check if it's break time
+    const isBreakLevel = tournament.current_level > 0 && 
+                         tournament.current_level % structure.breakFrequency === 0;
+    const isBreak = isBreakLevel && 
+                     tournament.break_start_time !== null && 
+                     tournament.break_completed_level !== tournament.current_level;
+    
+    // Calculate time remaining - handle breaks separately from regular levels
+    let timeRemaining = structure.levelMinutes * 60;
+    let breakTimeRemaining = 0;
+    
+    if (tournament.status === 'running') {
+      if (isBreak && tournament.break_start_time) {
+        const breakElapsedResult = await pool.query(
+          `SELECT EXTRACT(EPOCH FROM (NOW() - break_start_time))::INTEGER as elapsed
+           FROM tournaments WHERE id = $1`,
+          [id]
+        );
+        const breakElapsed = breakElapsedResult.rows[0]?.elapsed || 0;
+        breakTimeRemaining = Math.max(0, (structure.breakMinutes * 60) - breakElapsed);
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.level_elapsed_before_break || 0));
+        
+        if (breakTimeRemaining <= 0) {
+          const levelElapsedBeforeBreak = tournament.level_elapsed_before_break || 0;
+          await pool.query(
+            `UPDATE tournaments 
+             SET break_start_time = NULL,
+                 level_start_time = NOW() - ($2 || ' seconds')::INTERVAL,
+                 level_elapsed_before_break = 0,
+                 break_completed_level = $3
+             WHERE id = $1`,
+            [id, levelElapsedBeforeBreak, tournament.current_level]
+          );
+          
+          const updatedResult = await pool.query(
+            'SELECT * FROM tournaments WHERE id = $1',
+            [id]
+          );
+          if (updatedResult.rows.length > 0) {
+            tournament = updatedResult.rows[0];
+            const elapsedResult = await pool.query(
+              `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+               FROM tournaments WHERE id = $1`,
+              [id]
+            );
+            const elapsed = elapsedResult.rows[0]?.elapsed || 0;
+            timeRemaining = Math.max(0, (structure.levelMinutes * 60) - elapsed);
+            breakTimeRemaining = 0;
+          }
+        }
+      } else if (isBreakLevel && !tournament.break_start_time && tournament.level_start_time && tournament.break_completed_level !== tournament.current_level) {
+        const levelElapsedResult = await pool.query(
+          `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+           FROM tournaments WHERE id = $1`,
+          [id]
+        );
+        const levelElapsed = levelElapsedResult.rows[0]?.elapsed || 0;
+        
+        await pool.query(
+          `UPDATE tournaments 
+           SET break_start_time = NOW(),
+               level_elapsed_before_break = $2
+           WHERE id = $1`,
+          [id, levelElapsed]
+        );
+        
+        const updatedResult = await pool.query(
+          'SELECT * FROM tournaments WHERE id = $1',
+          [id]
+        );
+        if (updatedResult.rows.length > 0) {
+          tournament = updatedResult.rows[0];
+        }
+        
+        breakTimeRemaining = structure.breakMinutes * 60;
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - levelElapsed);
+      } else if (tournament.level_start_time && !isBreak) {
+        const elapsedResult = await pool.query(
+          `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+           FROM tournaments WHERE id = $1`,
+          [id]
+        );
+        const elapsed = elapsedResult.rows[0]?.elapsed || 0;
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - elapsed);
+        
+        if (tournament.break_start_time) {
+          await pool.query(
+            `UPDATE tournaments 
+             SET break_start_time = NULL
+             WHERE id = $1`,
+            [id]
+          );
+        }
+      }
+    } else if (tournament.status === 'paused') {
+      if (isBreak && tournament.break_start_time) {
+        breakTimeRemaining = Math.max(0, (structure.breakMinutes * 60) - (tournament.elapsed_before_pause || 0));
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.level_elapsed_before_break || 0));
+      } else {
+        timeRemaining = Math.max(0, (structure.levelMinutes * 60) - (tournament.elapsed_before_pause || 0));
+      }
+    }
+    
+    // Automatic level advancement when timer expires
+    if (tournament.status === 'running' && !isBreak && timeRemaining <= 0 && tournament.level_start_time) {
+      const timeSinceStartResult = await pool.query(
+        `SELECT EXTRACT(EPOCH FROM (NOW() - level_start_time))::INTEGER as elapsed
+         FROM tournaments WHERE id = $1`,
+        [id]
+      );
+      const timeSinceStart = timeSinceStartResult.rows[0]?.elapsed || 0;
+      
+      if (timeSinceStart >= structure.levelMinutes * 60) {
+        if (tournament.current_level < structure.levels.length) {
+          await pool.query(
+            `UPDATE tournaments 
+             SET current_level = current_level + 1, 
+                 level_start_time = NOW(),
+                 elapsed_before_pause = 0,
+                 break_start_time = NULL,
+                 level_elapsed_before_break = 0
+             WHERE id = $1`,
+            [id]
+          );
+          
+          const updatedResult = await pool.query(
+            'SELECT * FROM tournaments WHERE id = $1',
+            [id]
+          );
+          if (updatedResult.rows.length > 0) {
+            tournament = updatedResult.rows[0];
+            timeRemaining = structure.levelMinutes * 60;
+            currentBlind = structure.levels[tournament.current_level - 1] || structure.levels[0];
+            nextBlind = structure.levels[tournament.current_level] || null;
+          }
+        }
+      }
+    }
+    
+    // Calculate chip distribution
+    const chipDistribution = calculateChipDistribution(
+      tournament.starting_stack, 
+      tournament.max_players,
+      structure,
+      tournament.max_reentries || 0
+    );
+    
+    // Calculate leaderboard
+    const totalBountiesPaid = knockoutsResult.rows.reduce((sum, ko) => {
+      const bounty = getBountyAsInteger(ko.bounty_amount);
+      return sum + bounty;
+    }, 0);
+    
+    const activePlayers = entries.filter(e => !e.is_eliminated)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const eliminatedPlayers = entries.filter(e => e.is_eliminated)
+      .sort((a, b) => new Date(b.eliminated_at || 0) - new Date(a.eliminated_at || 0));
+    
+    const bountiesByEntry = {};
+    knockoutsResult.rows.forEach(ko => {
+      const eliminatorId = ko.eliminator_entry_id;
+      if (eliminatorId) {
+        const bounty = getBountyAsInteger(ko.bounty_amount);
+        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + bounty;
+      }
+    });
+    
+    let icmPayouts = [];
+    if (tournament.status === 'ended') {
+      const payoutPercentage = tournament.icm_payout_percentage || 20;
+      const payoutStructure = tournament.icm_payout_structure || 'standard';
+      const totalPlayers = entries.length;
+      const entryPrice = parseFloat(tournament.entry_price || 0);
+      
+      if (tournament.type === 'icm') {
+        const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
+        icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, prizePoolAvailable, entryPrice);
+      } else if (tournament.type === 'ko') {
+        const icmPrizePool = Math.max(0, totalPrizePool - totalBountiesPaid);
+        icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, icmPrizePool, entryPrice);
+      } else {
+        const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
+        icmPayouts = calculateICMPayouts(totalPlayers, 10, 'winner_takes_all', prizePoolAvailable, entryPrice);
+      }
+    }
+    
+    const leaderboard = [...activePlayers, ...eliminatedPlayers].map((entry, index) => {
+      const position = index + 1;
+      let prize = 0;
+      
+      if (tournament.status === 'ended' && icmPayouts.length > 0) {
+        prize = icmPayouts[position - 1] || 0;
+      }
+      
+      const calculatedBounty = bountiesByEntry[entry.id] || 0;
+      const bountyCollected = calculatedBounty > 0 ? calculatedBounty : getBountyAsInteger(entry.bounty_collected);
+      
+      return {
+        position,
+        entry_id: entry.id,
+        player_name: entry.player_name,
+        entry_number: entry.entry_number,
+        is_eliminated: entry.is_eliminated,
+        eliminated_at: entry.eliminated_at,
+        bounty_collected: bountyCollected,
+        prize: prize
+      };
+    });
+    
+    res.json({
+      ...tournament,
+      entries,
+      knockouts: knockoutsResult.rows,
+      chipDistribution,
+      blindStructure: {
+        levels: structure.levels,
+        levelMinutes: structure.levelMinutes,
+        breakFrequency: structure.breakFrequency,
+        breakMinutes: structure.breakMinutes
+      },
+      stats: {
+        activeEntries,
+        totalEntries,
+        totalPrizePool,
+        averageStack,
+        currentBlind,
+        nextBlind,
+        timeRemaining: isBreak && breakTimeRemaining > 0 ? breakTimeRemaining : timeRemaining,
+        levelTimeRemaining: timeRemaining,
+        breakTimeRemaining: breakTimeRemaining,
+        levelMinutes: structure.levelMinutes,
+        isBreak,
+        breakMinutes: structure.breakMinutes
+      },
+      leaderboard: {
+        rankings: leaderboard,
+        totalBountiesPaid,
+        prizePool: totalPrizePool
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get single tournament with full details (protected - owner only)
+app.get('/api/tournaments/:id', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -905,10 +1221,11 @@ app.get('/api/tournaments/:id', async (req, res) => {
   }
 });
 
-// Create tournament
-app.post('/api/tournaments', async (req, res) => {
+// Create tournament (protected - requires authentication)
+app.post('/api/tournaments', verifyToken, async (req, res) => {
   try {
     const { name, speed, max_players, max_reentries, type, entry_price, starting_blind_depth, blind_increase_rate, bba_start_level, icm_payout_percentage, icm_payout_structure } = req.body;
+    const userId = req.user.uid;
     
     const startingStack = calculateStartingStack(max_players, max_reentries || 0);
     const blindDepth = starting_blind_depth || 50; // Default to 50BB if not provided
@@ -918,10 +1235,10 @@ app.post('/api/tournaments', async (req, res) => {
     const payoutStructure = icm_payout_structure || 'standard'; // Default to standard structure
     
     const result = await pool.query(
-      `INSERT INTO tournaments (name, speed, max_players, max_reentries, type, entry_price, starting_stack, starting_blind_depth, blind_increase_rate, bba_start_level, icm_payout_percentage, icm_payout_structure)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO tournaments (name, speed, max_players, max_reentries, type, entry_price, starting_stack, starting_blind_depth, blind_increase_rate, bba_start_level, icm_payout_percentage, icm_payout_structure, owner)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING *`,
-      [name, speed, max_players, max_reentries, type, entry_price, startingStack, blindDepth, increaseRate, bbaStart, payoutPercentage, payoutStructure]
+      [name, speed, max_players, max_reentries, type, entry_price, startingStack, blindDepth, increaseRate, bbaStart, payoutPercentage, payoutStructure, userId]
     );
     
     res.json(result.rows[0]);
@@ -957,8 +1274,8 @@ app.post('/api/tournaments/preview', (req, res) => {
   });
 });
 
-// Update tournament status
-app.patch('/api/tournaments/:id/status', async (req, res) => {
+// Update tournament status (protected - owner only)
+app.patch('/api/tournaments/:id/status', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -1071,8 +1388,8 @@ app.patch('/api/tournaments/:id/status', async (req, res) => {
   }
 });
 
-// Skip break (end break and resume level timer)
-app.patch('/api/tournaments/:id/skip-break', async (req, res) => {
+// Skip break (end break and resume level timer) (protected - owner only)
+app.patch('/api/tournaments/:id/skip-break', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1115,8 +1432,8 @@ app.patch('/api/tournaments/:id/skip-break', async (req, res) => {
   }
 });
 
-// Advance to next level
-app.patch('/api/tournaments/:id/next-level', async (req, res) => {
+// Advance to next level (protected - owner only)
+app.patch('/api/tournaments/:id/next-level', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1139,8 +1456,8 @@ app.patch('/api/tournaments/:id/next-level', async (req, res) => {
   }
 });
 
-// Add entry
-app.post('/api/tournaments/:id/entries', async (req, res) => {
+// Add entry (protected - owner only)
+app.post('/api/tournaments/:id/entries', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     const { player_name } = req.body;
@@ -1183,8 +1500,8 @@ app.post('/api/tournaments/:id/entries', async (req, res) => {
   }
 });
 
-// Record knockout
-app.post('/api/tournaments/:id/knockouts', async (req, res) => {
+// Record knockout (protected - owner only)
+app.post('/api/tournaments/:id/knockouts', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     const { eliminator_entry_id, eliminated_entry_id } = req.body;
@@ -1232,8 +1549,8 @@ app.post('/api/tournaments/:id/knockouts', async (req, res) => {
   }
 });
 
-// Get tournament summary (text export)
-app.get('/api/tournaments/:id/summary', async (req, res) => {
+// Get tournament summary (text export) (protected - owner only)
+app.get('/api/tournaments/:id/summary', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -1465,8 +1782,8 @@ app.get('/api/tournaments/:id/summary', async (req, res) => {
   }
 });
 
-// Delete tournament
-app.delete('/api/tournaments/:id', async (req, res) => {
+// Delete tournament (protected - owner only)
+app.delete('/api/tournaments/:id', verifyToken, verifyTournamentOwner, async (req, res) => {
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM tournaments WHERE id = $1', [id]);

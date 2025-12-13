@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { fetchTournaments, deleteTournament, formatCurrency, formatDateTime } from '../utils/api';
 import TournamentForm from '../components/TournamentForm';
 
@@ -21,15 +22,19 @@ export default function HostDashboard() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const navigate = useNavigate();
+  const { user, token, signOut } = useAuth();
 
   useEffect(() => {
-    loadTournaments();
-  }, []);
+    if (token) {
+      loadTournaments();
+    }
+  }, [token]);
 
   const loadTournaments = async () => {
     try {
-      const data = await fetchTournaments();
-      setTournaments(data);
+      const data = await fetchTournaments(token);
+      // Filter to only show tournaments owned by current user
+      setTournaments(data.filter(t => t.owner === user.uid));
     } catch (err) {
       console.error('Failed to load tournaments:', err);
     } finally {
@@ -49,10 +54,11 @@ export default function HostDashboard() {
     if (!confirm('Are you sure you want to delete this tournament?')) return;
     
     try {
-      await deleteTournament(id);
+      await deleteTournament(id, token);
       setTournaments(prev => prev.filter(t => t.id !== id));
     } catch (err) {
       console.error('Failed to delete tournament:', err);
+      alert(err.message || 'Failed to delete tournament');
     }
   };
 
@@ -68,12 +74,32 @@ export default function HostDashboard() {
               </h1>
               <p className="text-gray-500 mt-1">Host Dashboard</p>
             </div>
-            <button
-              onClick={() => setShowForm(true)}
-              className="btn btn-gold"
-            >
-              + New Tournament
-            </button>
+            <div className="flex items-center gap-4">
+              {user && (
+                <div className="flex items-center gap-3">
+                  {user.photoURL && (
+                    <img 
+                      src={user.photoURL} 
+                      alt={user.displayName || 'User'} 
+                      className="w-8 h-8 rounded-full"
+                    />
+                  )}
+                  <span className="text-gray-400 text-sm">{user.displayName || user.email}</span>
+                </div>
+              )}
+              <button
+                onClick={() => setShowForm(true)}
+                className="btn btn-gold"
+              >
+                + New Tournament
+              </button>
+              <button
+                onClick={signOut}
+                className="btn btn-outline"
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -86,7 +112,8 @@ export default function HostDashboard() {
               <h2 className="font-display text-2xl gold-text mb-6">Create New Tournament</h2>
               <TournamentForm 
                 onCreated={handleCreated} 
-                onCancel={() => setShowForm(false)} 
+                onCancel={() => setShowForm(false)}
+                token={token}
               />
             </div>
           </div>
