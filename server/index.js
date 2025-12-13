@@ -1808,6 +1808,21 @@ app.get('/api/blind-structure/:speed', (req, res) => {
   res.json(structure);
 });
 
+// Serve static files from client/dist in production
+if (process.env.NODE_ENV === 'production') {
+  const clientDistPath = join(__dirname, '..', 'client', 'dist');
+  app.use(express.static(clientDistPath));
+  
+  // Handle React Router - return index.html for all non-API routes
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(join(clientDistPath, 'index.html'));
+    }
+  });
+  
+  console.log('Serving static files from:', clientDistPath);
+}
+
 const PORT = process.env.PORT || 3001;
 
 initDB().then(() => {
