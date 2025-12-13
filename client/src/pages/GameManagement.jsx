@@ -13,6 +13,7 @@ import {
   formatTime,
   exportTournamentSummary
 } from '../utils/api';
+import { trackTournamentStarted, trackTournamentEnded, trackPlayerEntryAdded, trackKnockoutRecorded } from '../utils/analytics';
 import BlindLevel from '../components/BlindLevel';
 import ChipStack from '../components/ChipStack';
 import Leaderboard from '../components/Leaderboard';
@@ -151,6 +152,11 @@ export default function GameManagement() {
     setActionLoading(true);
     try {
       await updateTournamentStatus(id, status, token);
+      if (status === 'running') {
+        trackTournamentStarted(id);
+      } else if (status === 'ended') {
+        trackTournamentEnded(id);
+      }
       refresh();
     } catch (err) {
       setActionError(err.message);
@@ -167,6 +173,7 @@ export default function GameManagement() {
     try {
       await addEntry(id, newPlayerName.trim(), token);
       setNewPlayerName('');
+      trackPlayerEntryAdded(id);
       refresh();
     } catch (err) {
       setActionError(err.message);
@@ -184,6 +191,7 @@ export default function GameManagement() {
       setShowKOModal(false);
       setKoEliminator('');
       setKoEliminated('');
+      trackKnockoutRecorded(id);
       refresh();
       
       if (result.bountyAmount > 0) {

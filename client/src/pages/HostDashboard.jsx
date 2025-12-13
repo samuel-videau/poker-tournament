@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { fetchTournaments, deleteTournament, formatCurrency, formatDateTime } from '../utils/api';
 import TournamentForm from '../components/TournamentForm';
+import { trackTournamentCreated } from '../utils/analytics';
 
 const STATUS_COLORS = {
   pending: 'badge-pending',
@@ -44,6 +45,7 @@ export default function HostDashboard() {
 
   const handleCreated = (tournament) => {
     setShowForm(false);
+    trackTournamentCreated(tournament.id, tournament.name);
     navigate(`/host/game/${tournament.id}`);
   };
 

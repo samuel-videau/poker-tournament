@@ -24,9 +24,12 @@ VITE_FIREBASE_PROJECT_ID=your-project-id
 VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
 VITE_FIREBASE_APP_ID=your-app-id
+VITE_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
 ```
 
 You can find these values in Firebase Console > Project Settings > General > Your apps.
+
+**Note:** `VITE_FIREBASE_MEASUREMENT_ID` is optional but recommended for Google Analytics tracking. You can find it in Firebase Console > Project Settings > General > Your apps, or in Google Analytics > Admin > Data Streams.
 
 ## 3. Configure Backend (Server)
 

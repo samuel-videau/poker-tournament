@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { trackLogin } from '../utils/analytics';
 
 export default function Login() {
   const [error, setError] = useState(null);
@@ -19,12 +20,15 @@ export default function Login() {
       switch (provider) {
         case 'google':
           user = await signInWithGoogle();
+          trackLogin('google');
           break;
         case 'facebook':
           user = await signInWithFacebook();
+          trackLogin('facebook');
           break;
         case 'apple':
           user = await signInWithApple();
+          trackLogin('apple');
           break;
         default:
           throw new Error('Unknown provider');

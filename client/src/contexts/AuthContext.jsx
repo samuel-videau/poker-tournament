@@ -6,6 +6,7 @@ import {
   getIdToken
 } from 'firebase/auth';
 import { auth, googleProvider, facebookProvider, appleProvider } from '../config/firebase';
+import { trackLogout } from '../utils/analytics';
 
 const AuthContext = createContext({});
 
@@ -78,6 +79,7 @@ export function AuthProvider({ children }) {
     try {
       await firebaseSignOut(auth);
       setToken(null);
+      trackLogout();
     } catch (error) {
       console.error('Sign-out error:', error);
       throw error;
