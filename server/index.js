@@ -327,28 +327,38 @@ function calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, pr
     payoutPercentages = payoutPercentages.map(p => (p / totalPercent) * 100);
   }
   
-  // Calculate actual prize amounts
+  // Calculate actual prize amounts - use exact calculations, round only at the end
   const payouts = new Array(totalPlayers).fill(0);
+  
+  // Calculate all payouts based on percentages
   for (let i = 0; i < numWinners && i < payoutPercentages.length; i++) {
-    payouts[i] = Math.round((prizePool * payoutPercentages[i]) / 100 * 100) / 100; // Round to 2 decimals
+    payouts[i] = (prizePool * payoutPercentages[i]) / 100;
   }
   
-  // Ensure total doesn't exceed prize pool due to rounding
-  const totalPayouts = payouts.reduce((sum, p) => sum + p, 0);
-  if (totalPayouts > prizePool) {
-    // Adjust the last payout to match exactly
-    const diff = totalPayouts - prizePool;
-    for (let i = payouts.length - 1; i >= 0; i--) {
-      if (payouts[i] > 0) {
-        payouts[i] = Math.max(0, payouts[i] - diff);
-        break;
-      }
-    }
-  } else if (totalPayouts < prizePool) {
-    // Add remainder to first place
-    const diff = prizePool - totalPayouts;
+  // Calculate total of calculated payouts
+  let calculatedTotal = payouts.reduce((sum, p) => sum + p, 0);
+  
+  // Adjust to ensure exact match with prize pool
+  const diff = prizePool - calculatedTotal;
+  if (Math.abs(diff) > 0.0001) { // Only adjust if there's a meaningful difference
+    // Add difference to first place to ensure total matches exactly
     if (payouts[0] > 0) {
       payouts[0] += diff;
+    }
+  }
+  
+  // Round to 2 decimal places for display/storage
+  for (let i = 0; i < payouts.length; i++) {
+    payouts[i] = Math.round(payouts[i] * 100) / 100;
+  }
+  
+  // Final verification: ensure total matches prize pool exactly after rounding
+  const finalTotal = payouts.reduce((sum, p) => sum + p, 0);
+  const finalDiff = prizePool - finalTotal;
+  if (Math.abs(finalDiff) > 0.01) { // Adjust if rounding caused significant difference
+    // Adjust first place to make up the difference
+    if (payouts[0] > 0) {
+      payouts[0] = Math.round((payouts[0] + finalDiff) * 100) / 100;
     }
   }
   
@@ -779,8 +789,11 @@ app.get('/api/tournaments/:id', async (req, res) => {
     
     // Calculate leaderboard
     // Calculate total bounties paid (sum of all bounty amounts from knockouts)
+    // Each bounty is ceil(buy-in / 2), stored as integer, so sum them directly
     const totalBountiesPaid = knockoutsResult.rows.reduce((sum, ko) => {
-      return sum + parseFloat(ko.bounty_amount || 0);
+      // Ensure we're working with integers - each bounty should be ceil(entry_price / 2)
+      const bounty = Math.round(parseFloat(ko.bounty_amount || 0));
+      return sum + bounty;
     }, 0);
     
     // Sort entries for leaderboard:
@@ -790,6 +803,20 @@ app.get('/api/tournaments/:id', async (req, res) => {
       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     const eliminatedPlayers = entries.filter(e => e.is_eliminated)
       .sort((a, b) => new Date(b.eliminated_at || 0) - new Date(a.eliminated_at || 0));
+    
+    // Calculate actual bounties collected per player from knockouts table
+    // This ensures accuracy and avoids rounding issues from stored bounty_collected field
+    // Each bounty is ceil(buy-in / 2), stored as integer, so sum them directly
+    const bountiesByEntry = {};
+    knockoutsResult.rows.forEach(ko => {
+      const eliminatorId = ko.eliminator_entry_id;
+      if (eliminatorId) {
+        // Each bounty_amount should already be an integer (ceil(buy-in / 2))
+        // Round to ensure integer in case of any floating point issues
+        const bounty = Math.round(parseFloat(ko.bounty_amount || 0));
+        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + bounty;
+      }
+    });
     
     // Calculate ICM payouts if tournament is ended
     let icmPayouts = [];
@@ -827,6 +854,10 @@ app.get('/api/tournaments/:id', async (req, res) => {
       }
       // For active tournaments, prize is 0 (or could show estimated prizes)
       
+      // Use calculated bounty from knockouts table, fallback to stored value if needed
+      const calculatedBounty = bountiesByEntry[entry.id] || 0;
+      const bountyCollected = calculatedBounty > 0 ? calculatedBounty : Math.round(parseFloat(entry.bounty_collected || 0));
+      
       return {
         position,
         entry_id: entry.id,
@@ -834,7 +865,7 @@ app.get('/api/tournaments/:id', async (req, res) => {
         entry_number: entry.entry_number,
         is_eliminated: entry.is_eliminated,
         eliminated_at: entry.eliminated_at,
-        bounty_collected: parseFloat(entry.bounty_collected || 0),
+        bounty_collected: bountyCollected,
         prize: prize
       };
     });
@@ -1170,13 +1201,18 @@ app.post('/api/tournaments/:id/knockouts', async (req, res) => {
     let bountyAmount = 0;
     
     if (tournament.type === 'ko' || tournament.type === 'mystery_ko') {
-      bountyAmount = parseFloat(tournament.entry_price) * 0.5; // 50% bounty
+      // Bounty = ceil(buy-in / 2) - round each bounty individually to avoid rounding issues
+      const entryPrice = parseFloat(tournament.entry_price);
+      const baseBounty = Math.ceil(entryPrice / 2);
       
       if (tournament.type === 'mystery_ko') {
         // Random bounty multiplier for mystery KO
         const multipliers = [0.5, 1, 1, 1, 1, 2, 2, 3, 5, 10];
         const randomMultiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
-        bountyAmount *= randomMultiplier;
+        bountyAmount = Math.ceil(baseBounty * randomMultiplier);
+      } else {
+        // For KO: each bounty is ceil(buy-in / 2), stored as integer
+        bountyAmount = baseBounty;
       }
     }
     
@@ -1187,19 +1223,23 @@ app.post('/api/tournaments/:id/knockouts', async (req, res) => {
     );
     
     // Update bounty collected for eliminator
+    // Ensure bounty is stored as integer (each bounty = ceil(buy-in / 2))
     if (bountyAmount > 0) {
+      const bountyAsInt = Math.round(bountyAmount); // Ensure integer
       await pool.query(
         'UPDATE entries SET bounty_collected = bounty_collected + $1 WHERE id = $2',
-        [bountyAmount, eliminator_entry_id]
+        [bountyAsInt, eliminator_entry_id]
       );
     }
     
     // Record knockout
+    // Store bounty as integer to avoid rounding issues
+    const bountyAsInt = Math.round(bountyAmount); // Ensure integer
     const result = await pool.query(
       `INSERT INTO knockouts (tournament_id, eliminator_entry_id, eliminated_entry_id, bounty_amount)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [id, eliminator_entry_id, eliminated_entry_id, bountyAmount]
+      [id, eliminator_entry_id, eliminated_entry_id, bountyAsInt]
     );
     
     res.json({ ...result.rows[0], bountyAmount });

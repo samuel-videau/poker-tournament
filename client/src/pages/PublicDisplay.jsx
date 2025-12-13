@@ -242,6 +242,11 @@ export default function PublicDisplay() {
               </div>
               <div className="text-gray-600 text-sm mt-1">
                 {formatCurrency(parseFloat(tournament.entry_price))} buy-in
+                {(tournament.type === 'ko' || tournament.type === 'mystery_ko') && (
+                  <span className="block mt-1 text-amber-400">
+                    Bounty: {formatCurrency(Math.ceil(parseFloat(tournament.entry_price) / 2))}
+                  </span>
+                )}
               </div>
             </div>
             <div className="card p-5 text-center">
