@@ -98,10 +98,10 @@ export default function PublicDisplay() {
 
   if (loading) {
     return (
-      <div className="min-h-screen animated-bg flex items-center justify-center">
+      <div className="min-h-screen animated-bg flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-gold-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-gold-400/70 mt-4 font-display text-2xl">Loading Tournament...</p>
+          <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-gold-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-gold-400/70 mt-4 font-display text-xl sm:text-2xl">Loading Tournament...</p>
         </div>
       </div>
     );
@@ -109,10 +109,10 @@ export default function PublicDisplay() {
 
   if (error || !tournament) {
     return (
-      <div className="min-h-screen animated-bg flex items-center justify-center">
+      <div className="min-h-screen animated-bg flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="text-8xl mb-4">🃏</div>
-          <h2 className="text-5xl font-display text-red-400">{error || 'Tournament Not Found'}</h2>
+          <div className="text-6xl sm:text-8xl mb-4">🃏</div>
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-display text-red-400 px-4">{error || 'Tournament Not Found'}</h2>
         </div>
       </div>
     );
@@ -140,49 +140,51 @@ export default function PublicDisplay() {
       
       {/* Header */}
       <header className="border-b border-white/5 bg-casino-black/50 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-[1920px] mx-auto px-8 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="font-display text-4xl md:text-5xl font-bold gold-text">
-              {tournament.name}
-            </h1>
-            <p className="text-gray-500 text-base md:text-lg mt-1 capitalize">
-              {tournament.type.replace('_', ' ')} • {tournament.speed} Speed
-            </p>
-          </div>
-          
-          <div className="text-right">
-            {isPending && (
-              <div className="text-xl md:text-2xl text-gray-400 font-display">
-                ⏳ Waiting to Start
-              </div>
-            )}
-            {isPaused && (
-              <div className="text-2xl md:text-3xl text-amber-400 font-display animate-pulse">
-                ⏸ PAUSED
-              </div>
-            )}
-            {isEnded && (
-              <div className="text-2xl md:text-3xl text-red-400 font-display">
-                🏆 TOURNAMENT ENDED
-              </div>
-            )}
+        <div className="max-w-[1920px] mx-auto px-4 sm:px-6 md:px-8 py-3 md:py-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
+            <div className="flex-1 min-w-0">
+              <h1 className="font-display text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold gold-text truncate">
+                {tournament.name}
+              </h1>
+              <p className="text-gray-500 text-sm sm:text-base md:text-lg mt-1 capitalize">
+                {tournament.type.replace('_', ' ')} • {tournament.speed} Speed
+              </p>
+            </div>
+            
+            <div className="text-left sm:text-right flex-shrink-0">
+              {isPending && (
+                <div className="text-lg sm:text-xl md:text-2xl text-gray-400 font-display">
+                  ⏳ Waiting to Start
+                </div>
+              )}
+              {isPaused && (
+                <div className="text-xl sm:text-2xl md:text-3xl text-amber-400 font-display animate-pulse">
+                  ⏸ PAUSED
+                </div>
+              )}
+              {isEnded && (
+                <div className="text-xl sm:text-2xl md:text-3xl text-red-400 font-display">
+                  🏆 TOURNAMENT ENDED
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
       {/* Main Content - Split Layout */}
-      <main className="max-w-[1920px] mx-auto px-8 py-6 h-[calc(100vh-100px)] flex gap-6">
-        {/* Left Side - Main Content (2/3 width) */}
-        <div className="flex-1 flex flex-col gap-6" style={{ width: '66.666%' }}>
+      <main className="max-w-[1920px] mx-auto px-4 sm:px-6 md:px-8 py-4 sm:py-6 min-h-[calc(100vh-140px)] sm:min-h-[calc(100vh-120px)] md:h-[calc(100vh-100px)] flex flex-col lg:flex-row gap-4 sm:gap-6">
+        {/* Left Side - Main Content */}
+        <div className="flex-1 flex flex-col gap-4 sm:gap-6 lg:w-2/3">
           {/* Timer - Most Important */}
-          <div className="card p-8 text-center">
-            <div className="text-sm uppercase tracking-widest text-gray-500 mb-3">
+          <div className="card p-4 sm:p-6 md:p-8 text-center">
+            <div className="text-xs sm:text-sm uppercase tracking-widest text-gray-500 mb-2 sm:mb-3">
               {stats?.isBreak ? 'Break Time' : `Level ${tournament.current_level}`}
             </div>
-            <div className={`timer-display text-9xl md:text-[12rem] font-bold ${timerColor} mb-2`}>
+            <div className={`timer-display text-6xl sm:text-7xl md:text-9xl lg:text-[12rem] font-bold ${timerColor} mb-2`}>
               {formatTime(localTimeRemaining)}
             </div>
-            <div className="text-gray-500 text-base">
+            <div className="text-gray-500 text-sm sm:text-base">
               {stats?.isBreak 
                 ? `${stats?.breakMinutes} minute break` 
                 : `${stats?.levelMinutes} minute levels`}
@@ -190,19 +192,19 @@ export default function PublicDisplay() {
           </div>
 
           {/* Current Blinds - High Importance */}
-          <div className="card p-6">
-            <div className="text-sm uppercase tracking-widest text-gray-500 mb-4">Current Blinds</div>
-            <div className="flex items-baseline gap-4 justify-center">
-              <span className="font-mono text-6xl md:text-7xl font-bold text-gold-400">
+          <div className="card p-4 sm:p-6">
+            <div className="text-xs sm:text-sm uppercase tracking-widest text-gray-500 mb-3 sm:mb-4">Current Blinds</div>
+            <div className="flex items-baseline gap-2 sm:gap-4 justify-center flex-wrap">
+              <span className="font-mono text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-gold-400">
                 {formatNumber(stats?.currentBlind?.sb || 0)}
               </span>
-              <span className="text-4xl text-gray-600">/</span>
-              <span className="font-mono text-6xl md:text-7xl font-bold text-gold-300">
+              <span className="text-2xl sm:text-3xl md:text-4xl text-gray-600">/</span>
+              <span className="font-mono text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-gold-300">
                 {formatNumber(stats?.currentBlind?.bb || 0)}
               </span>
             </div>
             {stats?.currentBlind?.ante > 0 && (
-              <div className="mt-4 text-center text-2xl">
+              <div className="mt-3 sm:mt-4 text-center text-lg sm:text-xl md:text-2xl">
                 <span className="text-gray-500">Ante: </span>
                 <span className="font-mono text-emerald-400 font-bold">
                   {formatNumber(stats.currentBlind.ante)}
@@ -210,19 +212,19 @@ export default function PublicDisplay() {
               </div>
             )}
             {stats?.nextBlind && (
-              <div className="mt-6 pt-6 border-t border-white/5">
-                <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Next Level</div>
-                <div className="flex items-baseline gap-3 justify-center opacity-70">
-                  <span className="font-mono text-4xl md:text-5xl font-bold text-gray-300">
+              <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-white/5">
+                <div className="text-xs sm:text-sm uppercase tracking-widest text-gray-600 mb-2">Next Level</div>
+                <div className="flex items-baseline gap-2 sm:gap-3 justify-center opacity-70 flex-wrap">
+                  <span className="font-mono text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-gray-300">
                     {formatNumber(stats.nextBlind.sb)}
                   </span>
-                  <span className="text-3xl text-gray-600">/</span>
-                  <span className="font-mono text-4xl md:text-5xl font-bold text-gray-300">
+                  <span className="text-xl sm:text-2xl md:text-3xl text-gray-600">/</span>
+                  <span className="font-mono text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-gray-300">
                     {formatNumber(stats.nextBlind.bb)}
                   </span>
                 </div>
                 {stats.nextBlind.ante > 0 && (
-                  <div className="mt-3 text-center text-lg opacity-70">
+                  <div className="mt-2 sm:mt-3 text-center text-base sm:text-lg opacity-70">
                     <span className="text-gray-500">Ante: </span>
                     <span className="font-mono text-gray-400 font-bold">
                       {formatNumber(stats.nextBlind.ante)}
@@ -234,13 +236,13 @@ export default function PublicDisplay() {
           </div>
 
           {/* Stats Grid - Medium Importance */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="card p-5 text-center">
-              <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Prize Pool</div>
-              <div className="font-display text-5xl md:text-6xl font-bold text-emerald-400">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div className="card p-4 sm:p-5 text-center">
+              <div className="text-xs sm:text-sm uppercase tracking-widest text-gray-600 mb-2">Prize Pool</div>
+              <div className="font-display text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-emerald-400 break-words">
                 {formatCurrency(stats?.totalPrizePool || 0)}
               </div>
-              <div className="text-gray-600 text-sm mt-1">
+              <div className="text-gray-600 text-xs sm:text-sm mt-1">
                 {formatCurrency(parseFloat(tournament.entry_price))} buy-in
                 {(tournament.type === 'ko' || tournament.type === 'mystery_ko' || tournament.type === 'pko') && (
                   <span className="block mt-1 text-amber-400">
@@ -255,20 +257,20 @@ export default function PublicDisplay() {
                 )}
               </div>
             </div>
-            <div className="card p-5 text-center">
-              <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Players</div>
-              <div className="font-display text-5xl md:text-6xl font-bold">
+            <div className="card p-4 sm:p-5 text-center">
+              <div className="text-xs sm:text-sm uppercase tracking-widest text-gray-600 mb-2">Players</div>
+              <div className="font-display text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold">
                 <span className="text-gold-400">{stats?.activeEntries || 0}</span>
                 <span className="text-gray-600 mx-1">/</span>
                 <span className="text-gray-400">{stats?.totalEntries || 0}</span>
               </div>
             </div>
-            <div className="card p-5 text-center">
-              <div className="text-sm uppercase tracking-widest text-gray-600 mb-2">Avg Stack</div>
-              <div className="font-mono text-4xl md:text-5xl font-bold text-white">
+            <div className="card p-4 sm:p-5 text-center">
+              <div className="text-xs sm:text-sm uppercase tracking-widest text-gray-600 mb-2">Avg Stack</div>
+              <div className="font-mono text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white break-words">
                 {formatNumber(stats?.averageStack || tournament.starting_stack)}
                 {stats?.currentBlind?.bb > 0 && (
-                  <span className="text-gold-400 text-3xl md:text-4xl ml-2">
+                  <span className="text-gold-400 text-xl sm:text-2xl md:text-3xl lg:text-4xl ml-1 sm:ml-2 block sm:inline">
                     ({Math.round((stats?.averageStack || tournament.starting_stack) / stats.currentBlind.bb)}BB)
                   </span>
                 )}
@@ -277,8 +279,8 @@ export default function PublicDisplay() {
           </div>
         </div>
 
-        {/* Right Side - Blinds Structure & Leaderboard (1/3 width) */}
-        <div className="flex flex-col gap-6" style={{ width: '33.333%' }}>
+        {/* Right Side - Blinds Structure & Leaderboard */}
+        <div className="flex flex-col gap-4 sm:gap-6 lg:w-1/3">
           {/* Leaderboard */}
           {tournament.leaderboard && (
             <Leaderboard 
@@ -289,8 +291,8 @@ export default function PublicDisplay() {
           )}
           
           {/* Blind Structure */}
-          <div className="card p-6 overflow-hidden flex flex-col flex-1">
-            <h2 className="font-display text-xl md:text-2xl font-bold text-white mb-4 pb-3 border-b border-white/10">
+          <div className="card p-4 sm:p-6 overflow-hidden flex flex-col flex-1 min-h-[300px] sm:min-h-0">
+            <h2 className="font-display text-lg sm:text-xl md:text-2xl font-bold text-white mb-3 sm:mb-4 pb-2 sm:pb-3 border-b border-white/10">
               Blind Structure
             </h2>
             <div className="flex-1 overflow-y-auto">
@@ -304,7 +306,7 @@ export default function PublicDisplay() {
                   return (
                     <div
                       key={index}
-                      className={`p-3 rounded-lg transition-all ${
+                      className={`p-2 sm:p-3 rounded-lg transition-all ${
                         isCurrent
                           ? 'bg-gold-500/20 border-2 border-gold-500/50'
                           : isPast
@@ -314,14 +316,14 @@ export default function PublicDisplay() {
                           : 'bg-casino-black/30 hover:bg-casino-black/50'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className={`font-mono text-base font-bold ${
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                          <span className={`font-mono text-sm sm:text-base font-bold flex-shrink-0 ${
                             isCurrent ? 'text-gold-400' : isPast ? 'text-gray-500' : 'text-gray-400'
                           }`}>
                             {levelNum}
                           </span>
-                          <div className="font-mono text-base">
+                          <div className="font-mono text-sm sm:text-base min-w-0">
                             <span className={isCurrent ? 'text-gold-400 font-bold' : isPast ? 'text-gray-500' : 'text-gray-300'}>
                               {formatNumber(level.sb)}
                             </span>
@@ -332,7 +334,7 @@ export default function PublicDisplay() {
                             {level.ante > 0 && (
                               <>
                                 <span className="text-gray-600 mx-1">|</span>
-                                <span className={`text-sm ${
+                                <span className={`text-xs sm:text-sm ${
                                   isCurrent ? 'text-emerald-400' : isPast ? 'text-gray-500' : 'text-gray-400'
                                 }`}>
                                   A: {formatNumber(level.ante)}
@@ -342,7 +344,7 @@ export default function PublicDisplay() {
                           </div>
                         </div>
                         {isCurrent && (
-                          <span className="text-sm px-2 py-0.5 bg-gold-500/30 text-gold-300 rounded font-semibold">
+                          <span className="text-xs sm:text-sm px-2 py-0.5 bg-gold-500/30 text-gold-300 rounded font-semibold flex-shrink-0">
                             Current
                           </span>
                         )}
@@ -358,8 +360,8 @@ export default function PublicDisplay() {
 
       {/* Footer */}
       <footer className="border-t border-white/5 bg-casino-black/50 backdrop-blur-sm">
-        <div className="max-w-[1920px] mx-auto px-8 py-3 flex items-center justify-between text-gray-500 text-sm md:text-base">
-          <div>♠ ♥ ♦ ♣ Poker Tournament Manager</div>
+        <div className="max-w-[1920px] mx-auto px-4 sm:px-6 md:px-8 py-2 sm:py-3 flex flex-col sm:flex-row items-center justify-between text-gray-500 text-xs sm:text-sm md:text-base gap-1 sm:gap-0">
+          <div className="text-center sm:text-left">♠ ♥ ♦ ♣ Poker Tournament Manager</div>
           <div className="font-mono">
             {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
           </div>
@@ -368,12 +370,12 @@ export default function PublicDisplay() {
 
       {/* Break Overlay */}
       {stats?.isBreak && isRunning && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
           <div className="text-center animate-float">
-            <div className="text-9xl mb-8">☕</div>
-            <h2 className="font-display text-7xl md:text-9xl gold-text mb-4">BREAK TIME</h2>
-            <p className="text-4xl text-gray-400">{stats.breakMinutes} minute break</p>
-            <div className={`timer-display text-9xl font-bold mt-8 ${timerColor}`}>
+            <div className="text-6xl sm:text-7xl md:text-9xl mb-4 sm:mb-8">☕</div>
+            <h2 className="font-display text-4xl sm:text-5xl md:text-7xl lg:text-9xl gold-text mb-3 sm:mb-4">BREAK TIME</h2>
+            <p className="text-2xl sm:text-3xl md:text-4xl text-gray-400">{stats.breakMinutes} minute break</p>
+            <div className={`timer-display text-6xl sm:text-7xl md:text-9xl font-bold mt-4 sm:mt-8 ${timerColor}`}>
               {formatTime(localTimeRemaining)}
             </div>
           </div>
