@@ -12,7 +12,8 @@ const SPEEDS = [
 const TYPES = [
   { value: 'icm', label: 'ICM', desc: 'Standard payout structure' },
   { value: 'ko', label: 'Knockout', desc: '50% bounty on eliminations' },
-  { value: 'mystery_ko', label: 'Mystery KO', desc: 'Random bounty multipliers' }
+  { value: 'mystery_ko', label: 'Mystery KO', desc: 'Random bounty multipliers' },
+  { value: 'pko', label: 'Progressive KO', desc: 'Bounties grow per elimination' }
 ];
 
 const BLIND_DEPTHS = [
@@ -163,7 +164,7 @@ export default function TournamentForm({ onCreated, onCancel, token }) {
         <label className="block text-sm font-medium text-gray-400 mb-2">
           Tournament Type
         </label>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           {TYPES.map(type => (
             <button
               key={type.value}
@@ -252,8 +253,8 @@ export default function TournamentForm({ onCreated, onCancel, token }) {
         </p>
       </div>
 
-      {/* ICM Distribution Settings - show for ICM and KO tournaments */}
-      {(formData.type === 'icm' || formData.type === 'ko') && (
+      {/* ICM Distribution Settings - show for ICM, KO, and PKO tournaments */}
+      {(formData.type === 'icm' || formData.type === 'ko' || formData.type === 'pko') && (
         <>
           {/* ICM Payout Percentage */}
           <div>
@@ -280,7 +281,7 @@ export default function TournamentForm({ onCreated, onCancel, token }) {
             </div>
             <p className="text-xs text-gray-500 mt-1">
               Percentage of players who will receive prizes
-              {formData.type === 'ko' && (
+              {(formData.type === 'ko' || formData.type === 'pko') && (
                 <span className="block mt-1 text-amber-400">
                   Note: ICM prize pool = Total prize pool - Bounties paid. Winner's unclaimed bounty goes to ICM.
                 </span>

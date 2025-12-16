@@ -1,13 +1,14 @@
 import React from 'react';
 import { formatCurrency } from '../utils/api';
 
-export default function Leaderboard({ leaderboard, tournamentStatus }) {
+export default function Leaderboard({ leaderboard, tournamentStatus, tournamentType }) {
   if (!leaderboard || !leaderboard.rankings || leaderboard.rankings.length === 0) {
     return null;
   }
 
   const { rankings, totalBountiesPaid, prizePool } = leaderboard;
   const isEnded = tournamentStatus === 'ended';
+  const isPKO = tournamentType === 'pko';
 
   // Get position emoji/icon
   const getPositionIcon = (position) => {
@@ -72,9 +73,17 @@ export default function Leaderboard({ leaderboard, tournamentStatus }) {
               </div>
               
               <div className="flex items-center gap-4 flex-shrink-0">
+                {isPKO && !player.is_eliminated && player.current_bounty > 0 && (
+                  <div className="text-right">
+                    <div className="text-xs text-gray-500">Bounty</div>
+                    <div className="text-sm font-bold text-amber-400">
+                      {formatCurrency(player.current_bounty)}
+                    </div>
+                  </div>
+                )}
                 {player.bounty_collected > 0 && (
                   <div className="text-right">
-                    <div className="text-xs text-gray-500">Bounties</div>
+                    <div className="text-xs text-gray-500">Collected</div>
                     <div className="text-sm font-bold text-emerald-400">
                       +{formatCurrency(player.bounty_collected)}
                     </div>

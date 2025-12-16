@@ -540,6 +540,13 @@ async function initDB() {
         ) THEN
           ALTER TABLE tournaments ADD COLUMN owner VARCHAR(255);
         END IF;
+        
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'entries' AND column_name = 'current_bounty'
+        ) THEN
+          ALTER TABLE entries ADD COLUMN current_bounty DECIMAL(10,2) DEFAULT 0;
+        END IF;
       END \$\$;
       
       CREATE TABLE IF NOT EXISTS entries (
@@ -550,6 +557,7 @@ async function initDB() {
         is_eliminated BOOLEAN DEFAULT FALSE,
         eliminated_at TIMESTAMP,
         bounty_collected DECIMAL(10,2) DEFAULT 0,
+        current_bounty DECIMAL(10,2) DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       
@@ -784,9 +792,12 @@ app.get('/api/tournaments/:id/public', async (req, res) => {
     );
     
     // Calculate leaderboard
+    // For PKO tournaments, only immediate rewards (ceil(bounty/2)) were actually paid
     const totalBountiesPaid = knockoutsResult.rows.reduce((sum, ko) => {
       const bounty = getBountyAsInteger(ko.bounty_amount);
-      return sum + bounty;
+      // For PKO, only ceil(bounty/2) was actually collected as immediate reward
+      const paidAmount = tournament.type === 'pko' ? Math.ceil(bounty / 2) : bounty;
+      return sum + paidAmount;
     }, 0);
     
     const activePlayers = entries.filter(e => !e.is_eliminated)
@@ -794,12 +805,18 @@ app.get('/api/tournaments/:id/public', async (req, res) => {
     const eliminatedPlayers = entries.filter(e => e.is_eliminated)
       .sort((a, b) => new Date(b.eliminated_at || 0) - new Date(a.eliminated_at || 0));
     
+    // Calculate actual bounties collected per player from knockouts table
+    // This ensures accuracy and avoids rounding issues from stored bounty_collected field
+    // Use utility function to ensure integers
+    // For PKO tournaments, only the immediate reward (ceil(bounty/2)) was collected
     const bountiesByEntry = {};
     knockoutsResult.rows.forEach(ko => {
       const eliminatorId = ko.eliminator_entry_id;
       if (eliminatorId) {
         const bounty = getBountyAsInteger(ko.bounty_amount);
-        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + bounty;
+        // For PKO, only ceil(bounty/2) was actually collected as immediate reward
+        const collectedAmount = tournament.type === 'pko' ? Math.ceil(bounty / 2) : bounty;
+        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + collectedAmount;
       }
     });
     
@@ -813,7 +830,7 @@ app.get('/api/tournaments/:id/public', async (req, res) => {
       if (tournament.type === 'icm') {
         const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, prizePoolAvailable, entryPrice);
-      } else if (tournament.type === 'ko') {
+      } else if (tournament.type === 'ko' || tournament.type === 'pko') {
         const icmPrizePool = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, icmPrizePool, entryPrice);
       } else {
@@ -833,6 +850,9 @@ app.get('/api/tournaments/:id/public', async (req, res) => {
       const calculatedBounty = bountiesByEntry[entry.id] || 0;
       const bountyCollected = calculatedBounty > 0 ? calculatedBounty : getBountyAsInteger(entry.bounty_collected);
       
+      // Get current bounty for PKO tournaments
+      const currentBounty = tournament.type === 'pko' ? getBountyAsInteger(entry.current_bounty || 0) : 0;
+      
       return {
         position,
         entry_id: entry.id,
@@ -841,6 +861,7 @@ app.get('/api/tournaments/:id/public', async (req, res) => {
         is_eliminated: entry.is_eliminated,
         eliminated_at: entry.eliminated_at,
         bounty_collected: bountyCollected,
+        current_bounty: currentBounty,
         prize: prize
       };
     });
@@ -1107,9 +1128,12 @@ app.get('/api/tournaments/:id', verifyToken, verifyTournamentOwner, async (req, 
     // Calculate leaderboard
     // Calculate total bounties paid (sum of all bounty amounts from knockouts)
     // Use utility function to ensure integers
+    // For PKO tournaments, only immediate rewards (ceil(bounty/2)) were actually paid
     const totalBountiesPaid = knockoutsResult.rows.reduce((sum, ko) => {
       const bounty = getBountyAsInteger(ko.bounty_amount);
-      return sum + bounty;
+      // For PKO, only ceil(bounty/2) was actually collected as immediate reward
+      const paidAmount = tournament.type === 'pko' ? Math.ceil(bounty / 2) : bounty;
+      return sum + paidAmount;
     }, 0);
     
     // Sort entries for leaderboard:
@@ -1123,12 +1147,15 @@ app.get('/api/tournaments/:id', verifyToken, verifyTournamentOwner, async (req, 
     // Calculate actual bounties collected per player from knockouts table
     // This ensures accuracy and avoids rounding issues from stored bounty_collected field
     // Use utility function to ensure integers
+    // For PKO tournaments, only the immediate reward (ceil(bounty/2)) was collected
     const bountiesByEntry = {};
     knockoutsResult.rows.forEach(ko => {
       const eliminatorId = ko.eliminator_entry_id;
       if (eliminatorId) {
         const bounty = getBountyAsInteger(ko.bounty_amount);
-        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + bounty;
+        // For PKO, only ceil(bounty/2) was actually collected as immediate reward
+        const collectedAmount = tournament.type === 'pko' ? Math.ceil(bounty / 2) : bounty;
+        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + collectedAmount;
       }
     });
     
@@ -1145,8 +1172,8 @@ app.get('/api/tournaments/:id', verifyToken, verifyTournamentOwner, async (req, 
         // For ICM tournaments: prize pool minus bounties goes to ICM
         const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, prizePoolAvailable, entryPrice);
-      } else if (tournament.type === 'ko') {
-        // For KO tournaments: ICM prize pool = total prize pool - bounties actually paid
+      } else if (tournament.type === 'ko' || tournament.type === 'pko') {
+        // For KO and PKO tournaments: ICM prize pool = total prize pool - bounties actually paid
         // The winner's bounty (never collected) goes to the ICM pool
         const icmPrizePool = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalPlayers, payoutPercentage, payoutStructure, icmPrizePool, entryPrice);
@@ -1172,6 +1199,9 @@ app.get('/api/tournaments/:id', verifyToken, verifyTournamentOwner, async (req, 
       const calculatedBounty = bountiesByEntry[entry.id] || 0;
       const bountyCollected = calculatedBounty > 0 ? calculatedBounty : getBountyAsInteger(entry.bounty_collected);
       
+      // Get current bounty for PKO tournaments
+      const currentBounty = tournament.type === 'pko' ? getBountyAsInteger(entry.current_bounty || 0) : 0;
+      
       return {
         position,
         entry_id: entry.id,
@@ -1180,6 +1210,7 @@ app.get('/api/tournaments/:id', verifyToken, verifyTournamentOwner, async (req, 
         is_eliminated: entry.is_eliminated,
         eliminated_at: entry.eliminated_at,
         bounty_collected: bountyCollected,
+        current_bounty: currentBounty,
         prize: prize
       };
     });
@@ -1486,11 +1517,18 @@ app.post('/api/tournaments/:id/entries', verifyToken, verifyTournamentOwner, asy
       return res.status(400).json({ error: 'Max reentries reached for this player' });
     }
     
+    // Initialize current_bounty for PKO tournaments
+    let currentBounty = 0;
+    if (tournament.type === 'pko') {
+      const entryPrice = parseFloat(tournament.entry_price);
+      currentBounty = Math.ceil(entryPrice / 2);
+    }
+    
     const result = await pool.query(
-      `INSERT INTO entries (tournament_id, player_name, entry_number)
-       VALUES ($1, $2, $3)
+      `INSERT INTO entries (tournament_id, player_name, entry_number, current_bounty)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [id, player_name, entryNumber]
+      [id, player_name, entryNumber, currentBounty]
     );
     
     res.json(result.rows[0]);
@@ -1514,9 +1552,73 @@ app.post('/api/tournaments/:id/knockouts', verifyToken, verifyTournamentOwner, a
     
     const tournament = tournamentResult.rows[0];
     
-    // Calculate bounty using utility function
+    // Get eliminated entry to check current bounty (for PKO mode)
+    const eliminatedEntryResult = await pool.query(
+      'SELECT * FROM entries WHERE id = $1',
+      [eliminated_entry_id]
+    );
+    
+    if (eliminatedEntryResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Eliminated entry not found' });
+    }
+    
+    const eliminatedEntry = eliminatedEntryResult.rows[0];
     const entryPrice = parseFloat(tournament.entry_price);
-    const bountyAmount = calculateBountyAmount(entryPrice, tournament.type);
+    
+    let bountyAmount = 0;
+    let immediateReward = 0;
+    let bountyIncrease = 0;
+    
+    if (tournament.type === 'pko') {
+      // PKO mode: Progressive Knockout
+      // Get the eliminated player's current bounty
+      const eliminatedBounty = parseFloat(eliminatedEntry.current_bounty || 0);
+      
+      // If eliminated player has no bounty yet, initialize it to ceil(entry_price / 2)
+      const playerBounty = eliminatedBounty > 0 ? eliminatedBounty : Math.ceil(entryPrice / 2);
+      
+      // Calculate immediate reward: ceil(playerBounty / 2)
+      immediateReward = Math.ceil(playerBounty / 2);
+      
+      // Calculate bounty increase: playerBounty - immediateReward
+      bountyIncrease = playerBounty - immediateReward;
+      
+      // Total bounty amount for tracking
+      bountyAmount = playerBounty;
+      
+      // Get eliminator's current entry
+      const eliminatorEntryResult = await pool.query(
+        'SELECT * FROM entries WHERE id = $1',
+        [eliminator_entry_id]
+      );
+      
+      if (eliminatorEntryResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Eliminator entry not found' });
+      }
+      
+      const eliminatorEntry = eliminatorEntryResult.rows[0];
+      const eliminatorCurrentBounty = parseFloat(eliminatorEntry.current_bounty || 0);
+      
+      // Initialize eliminator's bounty if needed
+      const eliminatorBounty = eliminatorCurrentBounty > 0 ? eliminatorCurrentBounty : Math.ceil(entryPrice / 2);
+      
+      // Update eliminator: add immediate reward to bounty_collected, add bounty increase to current_bounty
+      await pool.query(
+        'UPDATE entries SET bounty_collected = bounty_collected + $1, current_bounty = $2 WHERE id = $3',
+        [immediateReward, eliminatorBounty + bountyIncrease, eliminator_entry_id]
+      );
+    } else {
+      // Standard KO or Mystery KO mode
+      bountyAmount = calculateBountyAmount(entryPrice, tournament.type);
+      
+      // Update bounty collected for eliminator
+      if (bountyAmount > 0) {
+        await pool.query(
+          'UPDATE entries SET bounty_collected = bounty_collected + $1 WHERE id = $2',
+          [bountyAmount, eliminator_entry_id]
+        );
+      }
+    }
     
     // Mark entry as eliminated
     await pool.query(
@@ -1524,17 +1626,7 @@ app.post('/api/tournaments/:id/knockouts', verifyToken, verifyTournamentOwner, a
       [eliminated_entry_id]
     );
     
-    // Update bounty collected for eliminator
-    // Bounty is already an integer from calculateBountyAmount
-    if (bountyAmount > 0) {
-      await pool.query(
-        'UPDATE entries SET bounty_collected = bounty_collected + $1 WHERE id = $2',
-        [bountyAmount, eliminator_entry_id]
-      );
-    }
-    
     // Record knockout
-    // Bounty is already an integer from calculateBountyAmount
     const result = await pool.query(
       `INSERT INTO knockouts (tournament_id, eliminator_entry_id, eliminated_entry_id, bounty_amount)
        VALUES ($1, $2, $3, $4)
@@ -1542,7 +1634,12 @@ app.post('/api/tournaments/:id/knockouts', verifyToken, verifyTournamentOwner, a
       [id, eliminator_entry_id, eliminated_entry_id, bountyAmount]
     );
     
-    res.json({ ...result.rows[0], bountyAmount: bountyAmount });
+    res.json({ 
+      ...result.rows[0], 
+      bountyAmount: bountyAmount,
+      immediateReward: tournament.type === 'pko' ? immediateReward : bountyAmount,
+      bountyIncrease: tournament.type === 'pko' ? bountyIncrease : 0
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Database error' });
@@ -1589,17 +1686,24 @@ app.get('/api/tournaments/:id/summary', verifyToken, verifyTournamentOwner, asyn
     const totalPrizePool = totalEntries * parseFloat(tournament.entry_price);
     
     // Calculate bounties by entry using utility function
+    // For PKO tournaments, only immediate rewards (ceil(bounty/2)) were actually collected
     const bountiesByEntry = {};
     knockouts.forEach(ko => {
       const eliminatorId = ko.eliminator_entry_id;
       if (eliminatorId) {
         const bounty = getBountyAsInteger(ko.bounty_amount);
-        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + bounty;
+        // For PKO, only ceil(bounty/2) was actually collected as immediate reward
+        const collectedAmount = tournament.type === 'pko' ? Math.ceil(bounty / 2) : bounty;
+        bountiesByEntry[eliminatorId] = (bountiesByEntry[eliminatorId] || 0) + collectedAmount;
       }
     });
     
+    // For PKO tournaments, only immediate rewards (ceil(bounty/2)) were actually paid
     const totalBountiesPaid = knockouts.reduce((sum, ko) => {
-      return sum + getBountyAsInteger(ko.bounty_amount);
+      const bounty = getBountyAsInteger(ko.bounty_amount);
+      // For PKO, only ceil(bounty/2) was actually collected as immediate reward
+      const paidAmount = tournament.type === 'pko' ? Math.ceil(bounty / 2) : bounty;
+      return sum + paidAmount;
     }, 0);
     
     // Calculate leaderboard
@@ -1618,7 +1722,7 @@ app.get('/api/tournaments/:id/summary', verifyToken, verifyTournamentOwner, asyn
       if (tournament.type === 'icm') {
         const prizePoolAvailable = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalEntries, payoutPercentage, payoutStructure, prizePoolAvailable, entryPrice);
-      } else if (tournament.type === 'ko') {
+      } else if (tournament.type === 'ko' || tournament.type === 'pko') {
         const icmPrizePool = Math.max(0, totalPrizePool - totalBountiesPaid);
         icmPayouts = calculateICMPayouts(totalEntries, payoutPercentage, payoutStructure, icmPrizePool, entryPrice);
       } else {
@@ -1699,7 +1803,18 @@ app.get('/api/tournaments/:id/summary', verifyToken, verifyTournamentOwner, asyn
         const bounty = getBountyAsInteger(ko.bounty_amount);
         summary += `${index + 1}. ${time} - ${ko.eliminator_name} eliminated ${ko.eliminated_name}`;
         if (bounty > 0) {
-          summary += ` (+$${bounty.toLocaleString()} bounty)`;
+          if (tournament.type === 'pko') {
+            // For PKO, show immediate reward collected and bounty increase
+            const immediateReward = Math.ceil(bounty / 2);
+            const bountyIncrease = bounty - immediateReward;
+            summary += ` (+$${immediateReward.toLocaleString()} collected`;
+            if (bountyIncrease > 0) {
+              summary += `, bounty +$${bountyIncrease.toLocaleString()}`;
+            }
+            summary += ')';
+          } else {
+            summary += ` (+$${bounty.toLocaleString()} bounty)`;
+          }
         }
         summary += '\n';
       });
@@ -1711,7 +1826,7 @@ app.get('/api/tournaments/:id/summary', verifyToken, verifyTournamentOwner, asyn
     summary += 'FINAL LEADERBOARD\n';
     summary += '-'.repeat(60) + '\n';
     summary += 'Pos | Player Name';
-    if (tournament.type === 'ko' || tournament.type === 'mystery_ko') {
+    if (tournament.type === 'ko' || tournament.type === 'mystery_ko' || tournament.type === 'pko') {
       summary += ' | Bounties';
     }
     if (tournament.status === 'ended') {
@@ -1725,7 +1840,7 @@ app.get('/api/tournaments/:id/summary', verifyToken, verifyTournamentOwner, asyn
       const name = player.player_name.padEnd(20);
       let line = `${pos} | ${name}`;
       
-      if (tournament.type === 'ko' || tournament.type === 'mystery_ko') {
+      if (tournament.type === 'ko' || tournament.type === 'mystery_ko' || tournament.type === 'pko') {
         const bounties = player.bounty_collected > 0 ? `$${player.bounty_collected.toLocaleString()}` : '$0';
         line += ` | ${bounties.padEnd(10)}`;
       }
@@ -1755,7 +1870,7 @@ app.get('/api/tournaments/:id/summary', verifyToken, verifyTournamentOwner, asyn
     }
     
     // Bounty Summary (for KO tournaments)
-    if ((tournament.type === 'ko' || tournament.type === 'mystery_ko') && Object.keys(bountiesByEntry).length > 0) {
+    if ((tournament.type === 'ko' || tournament.type === 'mystery_ko' || tournament.type === 'pko') && Object.keys(bountiesByEntry).length > 0) {
       summary += '-'.repeat(60) + '\n';
       summary += 'BOUNTY SUMMARY\n';
       summary += '-'.repeat(60) + '\n';

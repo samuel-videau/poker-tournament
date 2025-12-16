@@ -195,7 +195,11 @@ export default function GameManagement() {
       refresh();
       
       if (result.bountyAmount > 0) {
-        alert(`Bounty collected: ${formatCurrency(result.bountyAmount)}`);
+        if (tournament.type === 'pko' && result.immediateReward !== undefined) {
+          alert(`Bounty collected: ${formatCurrency(result.immediateReward)}\nBounty increased by: ${formatCurrency(result.bountyIncrease || 0)}`);
+        } else {
+          alert(`Bounty collected: ${formatCurrency(result.bountyAmount)}`);
+        }
       }
     } catch (err) {
       setActionError(err.message);
@@ -226,7 +230,7 @@ export default function GameManagement() {
 
   const { stats, entries = [], knockouts = [] } = tournament;
   const activeEntries = entries.filter(e => !e.is_eliminated);
-  const isKO = tournament.type === 'ko' || tournament.type === 'mystery_ko';
+  const isKO = tournament.type === 'ko' || tournament.type === 'mystery_ko' || tournament.type === 'pko';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-casino-dark to-casino-black">
@@ -503,7 +507,11 @@ export default function GameManagement() {
           <div className="space-y-6">
             {/* Leaderboard */}
             {tournament.leaderboard && (
-              <Leaderboard leaderboard={tournament.leaderboard} tournamentStatus={tournament.status} />
+              <Leaderboard 
+                leaderboard={tournament.leaderboard} 
+                tournamentStatus={tournament.status}
+                tournamentType={tournament.type}
+              />
             )}
             
             {/* Actions Card */}
@@ -527,18 +535,40 @@ export default function GameManagement() {
               <div className="card p-4">
                 <h3 className="font-display text-lg text-white mb-4">Recent Knockouts</h3>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {knockouts.slice(0, 10).map(ko => (
-                    <div key={ko.id} className="p-2 bg-casino-black/50 rounded text-sm">
-                      <span className="text-emerald-400">{ko.eliminator_name}</span>
-                      <span className="text-gray-500"> eliminated </span>
-                      <span className="text-red-400">{ko.eliminated_name}</span>
-                      {parseFloat(ko.bounty_amount) > 0 && (
-                        <span className="text-gold-400 ml-2">
-                          +{formatCurrency(parseFloat(ko.bounty_amount))}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+                  {knockouts.slice(0, 10).map(ko => {
+                    const bountyAmount = parseFloat(ko.bounty_amount) || 0;
+                    const isPKO = tournament.type === 'pko';
+                    const immediateReward = isPKO && bountyAmount > 0 ? Math.ceil(bountyAmount / 2) : bountyAmount;
+                    const bountyIncrease = isPKO && bountyAmount > 0 ? bountyAmount - immediateReward : 0;
+                    
+                    return (
+                      <div key={ko.id} className="p-2 bg-casino-black/50 rounded text-sm">
+                        <span className="text-emerald-400">{ko.eliminator_name}</span>
+                        <span className="text-gray-500"> eliminated </span>
+                        <span className="text-red-400">{ko.eliminated_name}</span>
+                        {bountyAmount > 0 && (
+                          <div className="mt-1 flex flex-col gap-0.5">
+                            {isPKO ? (
+                              <>
+                                <span className="text-gold-400">
+                                  +{formatCurrency(immediateReward)} collected
+                                </span>
+                                {bountyIncrease > 0 && (
+                                  <span className="text-amber-400 text-xs">
+                                    Bounty +{formatCurrency(bountyIncrease)}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-gold-400">
+                                +{formatCurrency(bountyAmount)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

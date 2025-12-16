@@ -242,9 +242,15 @@ export default function PublicDisplay() {
               </div>
               <div className="text-gray-600 text-sm mt-1">
                 {formatCurrency(parseFloat(tournament.entry_price))} buy-in
-                {(tournament.type === 'ko' || tournament.type === 'mystery_ko') && (
+                {(tournament.type === 'ko' || tournament.type === 'mystery_ko' || tournament.type === 'pko') && (
                   <span className="block mt-1 text-amber-400">
-                    Bounty: {formatCurrency(Math.ceil(parseFloat(tournament.entry_price) / 2))}
+                    {tournament.type === 'pko' ? 'Starting Bounty: ' : 'Bounty: '}
+                    {formatCurrency(Math.ceil(parseFloat(tournament.entry_price) / 2))}
+                  </span>
+                )}
+                {tournament.type === 'pko' && tournament.leaderboard?.totalBountiesPaid > 0 && (
+                  <span className="block mt-1 text-emerald-400">
+                    Bounties Paid: {formatCurrency(tournament.leaderboard.totalBountiesPaid)}
                   </span>
                 )}
               </div>
@@ -275,7 +281,11 @@ export default function PublicDisplay() {
         <div className="flex flex-col gap-6" style={{ width: '33.333%' }}>
           {/* Leaderboard */}
           {tournament.leaderboard && (
-            <Leaderboard leaderboard={tournament.leaderboard} tournamentStatus={tournament.status} />
+            <Leaderboard 
+              leaderboard={tournament.leaderboard} 
+              tournamentStatus={tournament.status}
+              tournamentType={tournament.type}
+            />
           )}
           
           {/* Blind Structure */}
